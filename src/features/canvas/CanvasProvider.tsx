@@ -1,0 +1,56 @@
+import { createContext, useContext, ReactNode } from 'react'
+import { useCanvas } from './model/useCanvas'
+import { CanvasSize, Layer, MousePosition } from '@/shared/types'
+
+interface CanvasContextType {
+  canvasSize: CanvasSize
+  setCanvasSize: (size: CanvasSize) => void
+  zoom: number
+  minZoom: number
+  setZoom: (zoom: number) => void
+  setMinZoom: (zoom: number) => void
+  layers: Layer[]
+  activeLayerId: string
+  setActiveLayerId: (layerId: string) => void
+  referenceImageUrl: string | null
+  setReferenceImageUrl: (url: string | null) => void
+  referenceOpacity: number
+  setReferenceOpacity: (opacity: number) => void
+  isReferenceVisible: boolean
+  setIsReferenceVisible: (visible: boolean) => void
+  addLayer: () => void
+  removeLayer: (layerId: string) => void
+  toggleLayerVisibility: (layerId: string) => void
+  renameLayer: (layerId: string, name: string) => void
+  translateLayer: (layerId: string, dx: number, dy: number) => void
+  isDrawing: boolean
+  setIsDrawing: (drawing: boolean) => void
+  mousePosition: MousePosition
+  setMousePosition: (position: MousePosition) => void
+  pixels: Map<string, string>
+  setPixels: (pixels: Map<string, string>) => void
+  pushHistory: () => void
+  undo: () => void
+  clearCanvas: () => void
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
+}
+
+const CanvasContext = createContext<CanvasContextType | undefined>(undefined)
+
+export function CanvasProvider({ children }: { children: ReactNode }) {
+  const canvas = useCanvas()
+
+  return (
+    <CanvasContext.Provider value={canvas}>
+      {children}
+    </CanvasContext.Provider>
+  )
+}
+
+export function useCanvasContext() {
+  const context = useContext(CanvasContext)
+  if (!context) {
+    throw new Error('useCanvasContext must be used within CanvasProvider')
+  }
+  return context
+} 

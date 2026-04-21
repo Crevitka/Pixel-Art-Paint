@@ -1,0 +1,1 @@
+export { CanvasWidget } from './CanvasWidget' 
