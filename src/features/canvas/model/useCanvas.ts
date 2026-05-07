@@ -61,6 +61,7 @@ export function useCanvas() {
   const [activeLayerId, setActiveLayerId] = useState('layer-1')
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null)
   const [referenceOpacity, setReferenceOpacity] = useState(0.45)
+  const [referenceScale, setReferenceScaleState] = useState(1)
   const [isReferenceVisible, setIsReferenceVisible] = useState(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? layers[0]
@@ -148,6 +149,10 @@ export function useCanvas() {
     setZoomState((currentZoom) => Math.max(clampedMinZoom, currentZoom))
   }, [])
 
+  const setReferenceScale = useCallback((nextScale: number) => {
+    setReferenceScaleState(Math.min(4, Math.max(0.1, nextScale)))
+  }, [])
+
   const addLayer = useCallback(() => {
     pushHistory()
     const nextLayerNumber = nextLayerNumberRef.current
@@ -233,6 +238,8 @@ export function useCanvas() {
     setReferenceImageUrl,
     referenceOpacity,
     setReferenceOpacity,
+    referenceScale,
+    setReferenceScale,
     isReferenceVisible,
     setIsReferenceVisible,
     addLayer,

@@ -13,9 +13,10 @@ import {
   PaintBucket,
   Palette,
   Pencil,
+  Pipette,
   Plus,
-  Square,
   Settings,
+  Square,
   Trash2,
   Unlock
 } from 'lucide-react'
@@ -56,7 +57,8 @@ const tools = [
   { id: 'fill' as const, icon: PaintBucket, label: 'Заливка' },
   { id: 'selection' as const, icon: Crop, label: 'Выделение' },
   { id: 'rectangle' as const, icon: Square, label: 'Квадрат' },
-  { id: 'ellipse' as const, icon: Circle, label: 'Круг' }
+  { id: 'ellipse' as const, icon: Circle, label: 'Круг' },
+  { id: 'eyedropper' as const, icon: Pipette, label: 'Пипетка' }
 ]
 
 const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
@@ -91,7 +93,7 @@ export function ToolbarWidget({
 
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   const [editingLayerName, setEditingLayerName] = useState('')
-  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(false)
+  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true)
   const [widthInput, setWidthInput] = useState(String(canvasSize.width))
   const [heightInput, setHeightInput] = useState(String(canvasSize.height))
   const editingInputRef = useRef<HTMLInputElement>(null)
@@ -262,15 +264,19 @@ export function ToolbarWidget({
     }
 
     const isDragging = draggingBlockId === blockId
-    const isDropTarget = dragOverTarget?.panelId === panelId && dragOverTarget.blockId === blockId && draggingBlockId !== blockId
+    const isDropTarget =
+      dragOverTarget?.panelId === panelId &&
+      dragOverTarget.blockId === blockId &&
+      draggingBlockId !== blockId
 
     const wrapperProps = {
-      key: blockId,
       className: `${isCenterPanel ? 'rounded-2xl border-2 p-2' : 'space-y-3 rounded-2xl border-2 p-3'} transition-colors ${
         isDropTarget
           ? 'border-primary-500 bg-primary-50/60'
           : 'border-transparent bg-transparent'
-      } ${isDragging ? 'opacity-60' : ''} ${isCenterPanel && blockId === 'tools' ? 'cursor-grab active:cursor-grabbing' : ''}`,
+      } ${isDragging ? 'opacity-60' : ''} ${
+        isCenterPanel && blockId === 'tools' ? 'cursor-grab active:cursor-grabbing' : ''
+      }`,
       initial: { opacity: 0, y: 10 },
       animate: { opacity: 1, y: 0 },
       onDragOver: (event: DragEvent<HTMLDivElement>) => handleBlockDragOver(event, blockId),
@@ -280,6 +286,7 @@ export function ToolbarWidget({
     if (blockId === 'tools') {
       return (
         <motion.div
+          key={blockId}
           {...wrapperProps}
           draggable={isCenterPanel}
           onDragStart={
@@ -333,7 +340,7 @@ export function ToolbarWidget({
 
     if (blockId === 'palette') {
       return (
-        <motion.div {...wrapperProps} transition={{ delay: 0.2 }}>
+        <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.2 }}>
           {renderHeader(blockId, <Palette className="h-5 w-5" />, 'Палитра')}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -359,7 +366,10 @@ export function ToolbarWidget({
                   key={color}
                   className={`color-swatch ${selectedColor === color ? 'selected' : ''}`}
                   style={{ backgroundColor: color }}
-                  onClick={() => setSelectedColor(color)}
+                  onClick={() => {
+                    setSelectedColor(color)
+                    setPickerColor(color)
+                  }}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                 />
@@ -372,7 +382,7 @@ export function ToolbarWidget({
 
     if (blockId === 'canvas') {
       return (
-        <motion.div {...wrapperProps} transition={{ delay: 0.18 }}>
+        <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.18 }}>
           {renderHeader(blockId, <Grid3X3 className="h-5 w-5" />, 'Холст')}
           <div className="space-y-4">
             <div className="space-y-2">
@@ -387,8 +397,16 @@ export function ToolbarWidget({
                       : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
                   }`}
                   aria-pressed={isAspectRatioLocked}
-                  aria-label={isAspectRatioLocked ? 'Отключить сохранение пропорций' : 'Включить сохранение пропорций'}
-                  title={isAspectRatioLocked ? 'Сохранение пропорций включено' : 'Сохранение пропорций выключено'}
+                  aria-label={
+                    isAspectRatioLocked
+                      ? 'Отключить сохранение пропорций'
+                      : 'Включить сохранение пропорций'
+                  }
+                  title={
+                    isAspectRatioLocked
+                      ? 'Сохранение пропорций включено'
+                      : 'Сохранение пропорций выключено'
+                  }
                 >
                   {isAspectRatioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                 </button>
@@ -415,7 +433,6 @@ export function ToolbarWidget({
                 />
               </div>
             </div>
-
           </div>
         </motion.div>
       )
@@ -423,7 +440,7 @@ export function ToolbarWidget({
 
     if (blockId === 'brush') {
       return (
-        <motion.div {...wrapperProps} transition={{ delay: 0.25 }}>
+        <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.25 }}>
           {renderHeader(blockId, <Settings className="h-5 w-5" />, 'Размер кисти')}
           <div className="flex items-center gap-3">
             <input
@@ -441,7 +458,7 @@ export function ToolbarWidget({
     }
 
     return (
-      <motion.div {...wrapperProps} transition={{ delay: 0.3 }}>
+      <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.3 }}>
         {renderHeader(
           blockId,
           <Layers className="h-5 w-5" />,
@@ -461,9 +478,7 @@ export function ToolbarWidget({
             <div
               key={layer.id}
               className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition-colors ${
-                activeLayerId === layer.id
-                  ? 'border-primary-500 bg-primary-50'
-                  : 'border-gray-200 bg-white'
+                activeLayerId === layer.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'
               }`}
             >
               {editingLayerId === layer.id ? (

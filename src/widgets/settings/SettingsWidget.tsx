@@ -31,6 +31,8 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
     setReferenceImageUrl,
     referenceOpacity,
     setReferenceOpacity,
+    referenceScale,
+    setReferenceScale,
     isReferenceVisible,
     setIsReferenceVisible
   } = useCanvasContext()
@@ -130,6 +132,24 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
           step="0.05"
           value={referenceOpacity}
           onChange={(event) => setReferenceOpacity(Number(event.target.value))}
+          disabled={!referenceImageUrl}
+          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider disabled:cursor-not-allowed disabled:opacity-40"
+        />
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-gray-700">Масштаб</span>
+          <span className="min-w-[52px] text-right font-semibold text-gray-700">
+            {Math.round(referenceScale * 100)}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min="0.1"
+          max="4"
+          step="0.05"
+          value={referenceScale}
+          onChange={(event) => setReferenceScale(Number(event.target.value))}
           disabled={!referenceImageUrl}
           className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider disabled:cursor-not-allowed disabled:opacity-40"
         />

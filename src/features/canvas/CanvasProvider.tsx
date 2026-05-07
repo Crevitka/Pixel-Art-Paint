@@ -16,6 +16,8 @@ interface CanvasContextType {
   setReferenceImageUrl: (url: string | null) => void
   referenceOpacity: number
   setReferenceOpacity: (opacity: number) => void
+  referenceScale: number
+  setReferenceScale: (scale: number) => void
   isReferenceVisible: boolean
   setIsReferenceVisible: (visible: boolean) => void
   addLayer: () => void

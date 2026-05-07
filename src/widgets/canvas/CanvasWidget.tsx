@@ -1,12 +1,12 @@
 import { motion } from 'framer-motion'
 import { MousePointer } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { TransformComponent, TransformWrapper, type ReactZoomPanPinchContentRef } from 'react-zoom-pan-pinch'
+import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import { useColorContext } from '@/features/colors'
 import { useCanvasContext } from '@/features/canvas'
 import { useToolContext } from '@/features/tools'
 import rotateCursorUrl from '@/shared/ui/rotateCursor.svg'
-import type { CanvasSize, Tool } from '@/shared/types'
+import type { CanvasSize, Layer, Tool } from '@/shared/types'
 
 type LayerBounds = {
   minX: number
@@ -58,6 +58,17 @@ function hexToRgba(hex: string, alpha: number) {
 
 function getPixelColor(pixels: Map<string, string>, x: number, y: number) {
   return pixels.get(`${x},${y}`) ?? '#ffffff'
+}
+
+function getVisibleLayerColorAtPoint(layers: Layer[], x: number, y: number) {
+  for (const layer of layers) {
+    if (!layer.visible) continue
+
+    const color = layer.pixels.get(`${x},${y}`)
+    if (color) return color
+  }
+
+  return '#ffffff'
 }
 
 function isEditableElement(target: EventTarget | null) {
@@ -657,6 +668,7 @@ export function CanvasWidget() {
     activeLayerId,
     referenceImageUrl,
     referenceOpacity,
+    referenceScale,
     isReferenceVisible,
     setMinZoom,
     setZoom,
@@ -672,17 +684,19 @@ export function CanvasWidget() {
   } = useCanvasContext()
 
   const { selectedTool, brushSize } = useToolContext()
-  const { selectedColor } = useColorContext()
+  const { selectedColor, setSelectedColor, setPickerColor } = useColorContext()
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null)
+  const transformRef = useRef<ReactZoomPanPinchRef | null>(null)
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
+  const isPointerOverCanvasRef = useRef(false)
   const strokeToolRef = useRef<Tool>('pencil')
   const activePointerIdRef = useRef<number | null>(null)
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null)
+  const freehandPixelsRef = useRef<Map<string, string> | null>(null)
   const lineDragStartRef = useRef<{ x: number; y: number } | null>(null)
   const lineBasePixelsRef = useRef<Map<string, string> | null>(null)
   const shapeDragStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -822,26 +836,29 @@ export function CanvasWidget() {
       event.preventDefault()
     }
 
+    const preventBrowserWheelZoom = (event: WheelEvent) => {
+      const targetInsideCanvas = event.target instanceof Node && container.contains(event.target)
+      if ((!targetInsideCanvas && !isPointerOverCanvasRef.current) || (!event.ctrlKey && !event.metaKey)) {
+        return
+      }
+
+      event.preventDefault()
+    }
+
     container.addEventListener('gesturestart', preventGestureZoom as EventListener, { passive: false })
     container.addEventListener('gesturechange', preventGestureZoom as EventListener, { passive: false })
     container.addEventListener('gestureend', preventGestureZoom as EventListener, { passive: false })
+    window.addEventListener('wheel', preventBrowserWheelZoom, { passive: false, capture: true })
+    window.addEventListener('wheel', handleDirectWheelZoom, { passive: false, capture: true })
 
     return () => {
       container.removeEventListener('gesturestart', preventGestureZoom as EventListener)
       container.removeEventListener('gesturechange', preventGestureZoom as EventListener)
       container.removeEventListener('gestureend', preventGestureZoom as EventListener)
+      window.removeEventListener('wheel', preventBrowserWheelZoom, true)
+      window.removeEventListener('wheel', handleDirectWheelZoom, true)
     }
-  }, [])
-
-  useEffect(() => {
-    const transform = transformRef.current
-    if (!transform) return
-
-    const currentScale = transform.state.scale
-    if (Math.abs(currentScale - zoom) < 0.001) return
-
-    transform.setTransform(transform.state.positionX, transform.state.positionY, zoom, 120)
-  }, [zoom])
+  }, [minZoom])
 
   useEffect(() => {
     const transform = transformRef.current
@@ -1201,6 +1218,10 @@ export function CanvasWidget() {
     lineBasePixelsRef.current = null
   }
 
+  const resetFreehandStroke = () => {
+    freehandPixelsRef.current = null
+  }
+
   const resetShapeDrag = () => {
     shapeDragStartRef.current = null
     shapeBasePixelsRef.current = null
@@ -1255,11 +1276,16 @@ export function CanvasWidget() {
     if (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser') {
       lastDrawPointRef.current = { ...mousePosition }
     }
+    resetFreehandStroke()
     resetLineDrag()
     resetShapeDrag()
   }
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'pen') {
+      event.stopPropagation()
+    }
+
     if (event.pointerType === 'mouse' && event.button !== 0) return
     if (event.pointerType === 'pen' && event.button !== 0 && event.button !== 5) return
 
@@ -1282,6 +1308,15 @@ export function CanvasWidget() {
       setSelectionPreviewBounds(nextSelectionBounds)
       setSelectionBounds(nextSelectionBounds)
       setIsSelecting(true)
+      setIsDrawing(false)
+      return
+    }
+
+    if (selectedTool === 'eyedropper') {
+      const clampedCoords = clampPointToCanvas(coords.x, coords.y)
+      const pickedColor = getVisibleLayerColorAtPoint(layers, clampedCoords.x, clampedCoords.y)
+      setSelectedColor(pickedColor)
+      setPickerColor(pickedColor)
       setIsDrawing(false)
       return
     }
@@ -1347,7 +1382,15 @@ export function CanvasWidget() {
       lineBasePixelsRef.current = new Map(pixels)
       drawStraightLine(lineStartPoint, coords, strokeToolRef.current, brushSize, lineBasePixelsRef.current)
     } else {
-      drawPixel(coords.x, coords.y, strokeToolRef.current, brushSize)
+      if (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser') {
+        const nextPixels = new Map(pixels)
+        const { ox, oy } = getBrushOrigin(coords.x, coords.y, brushSize)
+        applyBrushToPixels(nextPixels, ox, oy, strokeToolRef.current, brushSize)
+        freehandPixelsRef.current = nextPixels
+        setPixels(nextPixels)
+      } else {
+        drawPixel(coords.x, coords.y, strokeToolRef.current, brushSize)
+      }
     }
 
     if (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser') {
@@ -1356,6 +1399,10 @@ export function CanvasWidget() {
   }
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'pen') {
+      event.stopPropagation()
+    }
+
     const coords = getPixelCoordinates(event)
     const canvasPoint = getCanvasCoordinates(event)
     setMousePosition(coords)
@@ -1468,14 +1515,53 @@ export function CanvasWidget() {
       return
     }
 
+    if (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser') {
+      const coalescedEvents = event.nativeEvent.getCoalescedEvents?.() ?? []
+      const coalescedPoints = coalescedEvents
+        .map((coalescedEvent) => getPixelCoordinatesFromClientPoint(coalescedEvent.clientX, coalescedEvent.clientY))
+        .filter((point, index, points) => {
+          if (index === 0) return true
+          const previousPoint = points[index - 1]
+          return point.x !== previousPoint.x || point.y !== previousPoint.y
+        })
+
+      const points = coalescedPoints.length > 0 ? coalescedPoints : [coords]
+      let lastPoint = lastDrawPointRef.current
+      const nextPixels = freehandPixelsRef.current ? new Map(freehandPixelsRef.current) : new Map(pixels)
+
+      for (const point of points) {
+        if (lastPoint) {
+          applyStraightLineToPixels(nextPixels, lastPoint, point, strokeToolRef.current, brushSize)
+        } else {
+          const { ox, oy } = getBrushOrigin(point.x, point.y, brushSize)
+          applyBrushToPixels(nextPixels, ox, oy, strokeToolRef.current, brushSize)
+        }
+
+        lastPoint = point
+      }
+
+      freehandPixelsRef.current = nextPixels
+      setPixels(nextPixels)
+      lastDrawPointRef.current = lastPoint ?? coords
+      return
+    }
+
     drawPixel(coords.x, coords.y, strokeToolRef.current, brushSize)
   }
 
   const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'pen') {
+      event.stopPropagation()
+    }
+
     endStroke(event)
   }
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'pen') {
+      event.stopPropagation()
+    }
+
     endStroke(event)
   }
 
@@ -1484,6 +1570,7 @@ export function CanvasWidget() {
     resetLayerTransform()
     resetSelectionDrag()
     resetLineDrag()
+    resetFreehandStroke()
     resetShapeDrag()
     resetPan()
     setIsDrawing(false)
@@ -1517,6 +1604,20 @@ export function CanvasWidget() {
     return {
       x: Math.floor(canvasPoint.x / pixelDisplaySize),
       y: Math.floor(canvasPoint.y / pixelDisplaySize)
+    }
+  }
+
+  const getPixelCoordinatesFromClientPoint = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+
+    const rect = canvas.getBoundingClientRect()
+    const x = ((clientX - rect.left) / rect.width) * canvas.width
+    const y = ((clientY - rect.top) / rect.height) * canvas.height
+
+    return {
+      x: Math.floor(x / pixelDisplaySize),
+      y: Math.floor(y / pixelDisplaySize)
     }
   }
 
@@ -1629,6 +1730,43 @@ export function CanvasWidget() {
     }
 
     setPixels(nextPixels)
+  }
+
+  const applyStraightLineToPixels = (
+    pixelsMap: Map<string, string>,
+    startPoint: { x: number; y: number },
+    endPoint: { x: number; y: number },
+    tool: Tool,
+    strokeBrushSize: number
+  ) => {
+    if (tool === 'fill' || tool === 'selection' || tool === 'rectangle' || tool === 'ellipse') return
+
+    let x0 = startPoint.x
+    let y0 = startPoint.y
+    const x1 = endPoint.x
+    const y1 = endPoint.y
+    const dx = Math.abs(x1 - x0)
+    const dy = Math.abs(y1 - y0)
+    const sx = x0 < x1 ? 1 : -1
+    const sy = y0 < y1 ? 1 : -1
+    let error = dx - dy
+
+    while (true) {
+      const { ox, oy } = getBrushOrigin(x0, y0, strokeBrushSize)
+      applyBrushToPixels(pixelsMap, ox, oy, tool, strokeBrushSize)
+
+      if (x0 === x1 && y0 === y1) break
+
+      const error2 = error * 2
+      if (error2 > -dy) {
+        error -= dy
+        x0 += sx
+      }
+      if (error2 < dx) {
+        error += dx
+        y0 += sy
+      }
+    }
   }
 
   const floodFill = (startX: number, startY: number, fillColor: string) => {
@@ -1750,6 +1888,50 @@ export function CanvasWidget() {
     setZoom(clampedZoom)
   }
 
+  const zoomCanvasAtClientPoint = (clientX: number, clientY: number, nextZoom: number) => {
+    const container = containerRef.current
+    const transform = transformRef.current
+    if (!container || !transform) return
+
+    const rect = container.getBoundingClientRect()
+    const pointerX = clientX - rect.left
+    const pointerY = clientY - rect.top
+    const currentScale = transform.state.scale
+    const currentPositionX = transform.state.positionX
+    const currentPositionY = transform.state.positionY
+
+    if (Math.abs(nextZoom - currentScale) < 0.0001) return
+
+    const contentX = (pointerX - currentPositionX) / currentScale
+    const contentY = (pointerY - currentPositionY) / currentScale
+    const nextPositionX = pointerX - contentX * nextZoom
+    const nextPositionY = pointerY - contentY * nextZoom
+
+    transform.setTransform(nextPositionX, nextPositionY, nextZoom, 0)
+    setZoom(nextZoom)
+  }
+
+  const handleDirectWheelZoom = (event: WheelEvent) => {
+    const container = containerRef.current
+    const transform = transformRef.current
+    if (!container || !transform) return
+
+    const targetInsideCanvas = event.target instanceof Node && container.contains(event.target)
+    if (!targetInsideCanvas && !isPointerOverCanvasRef.current) return
+    if (event.ctrlKey || event.metaKey) return
+
+    const looksLikeWheelDevice = event.deltaMode !== 0 || Math.abs(event.deltaY) >= 40
+    if (!looksLikeWheelDevice) return
+
+    event.preventDefault()
+
+    const normalizedDelta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
+    const zoomFactor = Math.exp(-normalizedDelta * 0.0018)
+    const nextZoom = Math.min(4, Math.max(minZoom, transform.state.scale * zoomFactor))
+
+    zoomCanvasAtClientPoint(event.clientX, event.clientY, nextZoom)
+  }
+
   const cursorValue =
     selectedTool === 'selection'
       ? 'crosshair'
@@ -1779,13 +1961,18 @@ export function CanvasWidget() {
       <div
         ref={containerRef}
         className={`flex-1 min-w-0 min-h-0 overflow-hidden ${isPanning ? 'select-none' : ''}`}
+        onPointerEnter={() => {
+          isPointerOverCanvasRef.current = true
+        }}
+        onPointerLeave={() => {
+          isPointerOverCanvasRef.current = false
+        }}
         style={{
           userSelect: isPanning ? 'none' : undefined
         }}
       >
         <TransformWrapper
           key={`${canvasSize.width}x${canvasSize.height}`}
-          ref={transformRef}
           initialScale={zoom}
           minScale={minZoom}
           maxScale={4}
@@ -1800,7 +1987,7 @@ export function CanvasWidget() {
             excluded: []
           }}
           panning={{
-            disabled: false,
+            disabled: !isSpacePressed,
             velocityDisabled: true,
             allowLeftClickPan: true,
             allowMiddleClickPan: false,
@@ -1817,6 +2004,9 @@ export function CanvasWidget() {
             excluded: []
           }}
           doubleClick={{ disabled: true }}
+          onInit={(ref) => {
+            transformRef.current = ref
+          }}
           onTransform={(_ref, state) => {
             setZoom(state.scale)
           }}
@@ -1854,7 +2044,9 @@ export function CanvasWidget() {
                   style={{
                     opacity: referenceOpacity,
                     width: `${canvasWidth}px`,
-                    height: `${canvasHeight}px`
+                    height: `${canvasHeight}px`,
+                    transform: `scale(${referenceScale})`,
+                    transformOrigin: 'center center'
                   }}
                 />
               ) : null}

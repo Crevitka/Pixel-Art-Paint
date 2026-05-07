@@ -1,4 +1,4 @@
-export type Tool = 'pencil' | 'eraser' | 'fill' | 'selection' | 'rectangle' | 'ellipse'
+export type Tool = 'pencil' | 'eraser' | 'fill' | 'selection' | 'rectangle' | 'ellipse' | 'eyedropper'
 
 export interface CanvasSize {
   width: number
