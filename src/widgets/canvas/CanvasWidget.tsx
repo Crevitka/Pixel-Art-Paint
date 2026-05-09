@@ -153,7 +153,13 @@ function getCursorForHandle(handle: TransformHandle) {
   }
 }
 
-function getHandleCenters(bounds: LayerBounds, pixelSize: number) {
+function getTransformUiScale(zoom = 1) {
+  return Math.min(3, Math.max(1, 1 / Math.max(zoom, 0.01)))
+}
+
+function getHandleCenters(bounds: LayerBounds, pixelSize: number, zoom = 1) {
+  const uiScale = getTransformUiScale(zoom)
+  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * uiScale
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const right = (bounds.maxX + 1) * pixelSize
@@ -162,7 +168,7 @@ function getHandleCenters(bounds: LayerBounds, pixelSize: number) {
   const centerY = (top + bottom) / 2
 
   return [
-    { handle: 'rotate' as const, x: centerX, y: top - ROTATE_HANDLE_OFFSET },
+    { handle: 'rotate' as const, x: centerX, y: top - rotateHandleOffset },
     { handle: 'nw' as const, x: left, y: top },
     { handle: 'n' as const, x: centerX, y: top },
     { handle: 'ne' as const, x: right, y: top },
@@ -178,16 +184,18 @@ function getHandleAtCanvasPoint(
   x: number,
   y: number,
   bounds: LayerBounds,
-  pixelSize: number
+  pixelSize: number,
+  zoom = 1
 ): TransformHandle | null {
-  const handles = getHandleCenters(bounds, pixelSize)
+  const handleSize = HANDLE_SIZE * getTransformUiScale(zoom)
+  const handles = getHandleCenters(bounds, pixelSize, zoom)
 
   for (const handle of handles) {
     if (
-      x >= handle.x - HANDLE_SIZE / 2 &&
-      x <= handle.x + HANDLE_SIZE / 2 &&
-      y >= handle.y - HANDLE_SIZE / 2 &&
-      y <= handle.y + HANDLE_SIZE / 2
+      x >= handle.x - handleSize / 2 &&
+      x <= handle.x + handleSize / 2 &&
+      y >= handle.y - handleSize / 2 &&
+      y <= handle.y + handleSize / 2
     ) {
       return handle.handle
     }
@@ -200,8 +208,10 @@ function getCornerRotateHandleAtCanvasPoint(
   x: number,
   y: number,
   bounds: LayerBounds,
-  pixelSize: number
+  pixelSize: number,
+  zoom = 1
 ): TransformHandle | null {
+  const uiScale = getTransformUiScale(zoom)
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const right = (bounds.maxX + 1) * pixelSize
@@ -218,7 +228,10 @@ function getCornerRotateHandleAtCanvasPoint(
 
   for (const corner of corners) {
     const distance = Math.hypot(x - corner.x, y - corner.y)
-    if (distance <= ROTATE_CORNER_DISTANCE && distance >= ROTATE_CORNER_INNER_DISTANCE) {
+    if (
+      distance <= ROTATE_CORNER_DISTANCE * uiScale &&
+      distance >= ROTATE_CORNER_INNER_DISTANCE * uiScale
+    ) {
       return 'rotate'
     }
   }
@@ -230,8 +243,12 @@ function drawTransformBox(
   ctx: CanvasRenderingContext2D,
   bounds: LayerBounds,
   pixelSize: number,
-  activeHandle: TransformHandle | null
+  activeHandle: TransformHandle | null,
+  zoom = 1
 ) {
+  const uiScale = getTransformUiScale(zoom)
+  const handleSize = HANDLE_SIZE * uiScale
+  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * uiScale
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const width = (bounds.maxX - bounds.minX + 1) * pixelSize
@@ -239,21 +256,21 @@ function drawTransformBox(
 
   ctx.save()
   ctx.strokeStyle = '#2563eb'
-  ctx.lineWidth = 2
-  ctx.setLineDash([6, 4])
+  ctx.lineWidth = Math.max(2, 2 / Math.max(zoom, 0.01))
+  ctx.setLineDash([6 * uiScale, 4 * uiScale])
   ctx.strokeRect(left, top, width, height)
   ctx.setLineDash([])
 
   ctx.beginPath()
   ctx.moveTo(left + width / 2, top)
-  ctx.lineTo(left + width / 2, top - ROTATE_HANDLE_OFFSET)
+  ctx.lineTo(left + width / 2, top - rotateHandleOffset)
   ctx.stroke()
 
-  getHandleCenters(bounds, pixelSize).forEach(({ handle, x, y }) => {
+  getHandleCenters(bounds, pixelSize, zoom).forEach(({ handle, x, y }) => {
     if (handle === 'rotate') {
       ctx.fillStyle = activeHandle === handle ? '#1d4ed8' : '#ffffff'
       ctx.beginPath()
-      ctx.arc(x, y, HANDLE_SIZE / 2, 0, Math.PI * 2)
+      ctx.arc(x, y, handleSize / 2, 0, Math.PI * 2)
       ctx.fill()
       ctx.stroke()
       return
@@ -261,15 +278,16 @@ function drawTransformBox(
 
     ctx.fillStyle = activeHandle === handle ? '#1d4ed8' : '#ffffff'
     ctx.strokeStyle = '#2563eb'
-    ctx.lineWidth = 2
-    ctx.fillRect(x - HANDLE_SIZE / 2, y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
-    ctx.strokeRect(x - HANDLE_SIZE / 2, y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE)
+    ctx.lineWidth = Math.max(2, 2 / Math.max(zoom, 0.01))
+    ctx.fillRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize)
+    ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize)
   })
 
   ctx.restore()
 }
 
-function drawSelectionBox(ctx: CanvasRenderingContext2D, bounds: LayerBounds, pixelSize: number) {
+function drawSelectionBox(ctx: CanvasRenderingContext2D, bounds: LayerBounds, pixelSize: number, zoom = 1) {
+  const uiScale = getTransformUiScale(zoom)
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const width = (bounds.maxX - bounds.minX + 1) * pixelSize
@@ -279,8 +297,8 @@ function drawSelectionBox(ctx: CanvasRenderingContext2D, bounds: LayerBounds, pi
   ctx.fillStyle = 'rgba(245, 158, 11, 0.12)'
   ctx.fillRect(left, top, width, height)
   ctx.strokeStyle = '#f59e0b'
-  ctx.lineWidth = 2
-  ctx.setLineDash([8, 4])
+  ctx.lineWidth = Math.max(2, 2 / Math.max(zoom, 0.01))
+  ctx.setLineDash([8 * uiScale, 4 * uiScale])
   ctx.strokeRect(left, top, width, height)
   ctx.restore()
 }
@@ -1240,12 +1258,13 @@ export function CanvasWidget() {
         ctx,
         previewBounds,
         pixelDisplaySize,
-        isLayerRotating ? 'rotate' : isLayerScaling ? scaleHandleRef.current : hoveredHandle
+        isLayerRotating ? 'rotate' : isLayerScaling ? scaleHandleRef.current : hoveredHandle,
+        zoom
       )
     }
 
     if (activeSelectionBounds) {
-      drawSelectionBox(ctx, activeSelectionBounds, pixelDisplaySize)
+      drawSelectionBox(ctx, activeSelectionBounds, pixelDisplaySize, zoom)
     }
 
     if (showEraserOutline) {
@@ -1277,7 +1296,8 @@ export function CanvasWidget() {
     shouldShowTransformBox,
     showBrushOutline,
     showEraserOutline,
-    eraserOutlineKey
+    eraserOutlineKey,
+    zoom
   ])
 
   useEffect(() => {
@@ -1497,8 +1517,8 @@ export function CanvasWidget() {
     if (event.ctrlKey && activeLayer && activeLayerBounds) {
       pushHistory()
       const handle =
-        getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize) ??
-        getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize)
+        getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom) ??
+        getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
 
       if (handle) {
         if (handle === 'rotate') {
@@ -1585,8 +1605,8 @@ export function CanvasWidget() {
 
     if (activePointerIdRef.current === null && selectedTool !== 'selection' && isMoveModifierPressed && activeLayerBounds) {
       setHoveredHandle(
-        getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize) ??
-        getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize)
+        getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom) ??
+        getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
       )
     } else if (!isMoveModifierPressed && !isLayerScaling && !isLayerRotating) {
       setHoveredHandle(null)

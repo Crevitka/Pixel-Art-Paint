@@ -78,7 +78,19 @@ export function ToolbarWidget({
   onBlockDrop
 }: ToolbarWidgetProps) {
   const { selectedTool, setSelectedTool, brushSize, setBrushSize } = useToolContext()
-  const { selectedColor, setSelectedColor, pickerColor, setPickerColor, paletteColors, addPaletteColor } = useColorContext()
+  const {
+    selectedColor,
+    setSelectedColor,
+    pickerColor,
+    setPickerColor,
+    paletteColors,
+    palettePresets,
+    activePalettePresetId,
+    applyPalettePreset,
+    createPalettePreset,
+    addPaletteColor,
+    updatePaletteColor
+  } = useColorContext()
   const {
     canvasSize,
     setCanvasSize,
@@ -93,10 +105,17 @@ export function ToolbarWidget({
 
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   const [editingLayerName, setEditingLayerName] = useState('')
+  const [editingPaletteColorIndex, setEditingPaletteColorIndex] = useState<number | null>(null)
   const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true)
   const [widthInput, setWidthInput] = useState(String(canvasSize.width))
   const [heightInput, setHeightInput] = useState(String(canvasSize.height))
   const editingInputRef = useRef<HTMLInputElement>(null)
+  const paletteColorInputRef = useRef<HTMLInputElement>(null)
+  const paletteEditColorInputRef = useRef<HTMLInputElement>(null)
+  const paletteColorDraftRef = useRef<string | null>(null)
+  const isPaletteColorPickerOpenRef = useRef(false)
+  const paletteEditColorDraftRef = useRef<string | null>(null)
+  const isPaletteEditColorPickerOpenRef = useRef(false)
   const aspectRatioRef = useRef(canvasSize.width / canvasSize.height)
 
   const maxCanvasSize = 512
@@ -135,7 +154,49 @@ export function ToolbarWidget({
   }, [activeLayerId, editingLayerId, layers])
 
   const handleAddPaletteColor = () => {
-    addPaletteColor(pickerColor)
+    paletteColorDraftRef.current = pickerColor
+    isPaletteColorPickerOpenRef.current = true
+    paletteColorInputRef.current?.click()
+  }
+
+  const handlePaletteColorPreview = (color: string) => {
+    paletteColorDraftRef.current = color
+    setPickerColor(color)
+  }
+
+  const commitPaletteColorPicked = () => {
+    if (!isPaletteColorPickerOpenRef.current) return
+
+    isPaletteColorPickerOpenRef.current = false
+    const color = paletteColorDraftRef.current
+    if (!color) return
+    addPaletteColor(color)
+  }
+
+  const handleEditPaletteColor = (index: number, color: string) => {
+    setEditingPaletteColorIndex(index)
+    paletteEditColorDraftRef.current = color
+    isPaletteEditColorPickerOpenRef.current = true
+    setPickerColor(color)
+    paletteEditColorInputRef.current?.click()
+  }
+
+  const handlePaletteEditColorPreview = (color: string) => {
+    paletteEditColorDraftRef.current = color
+    setPickerColor(color)
+  }
+
+  const commitPaletteEditColorPicked = () => {
+    if (!isPaletteEditColorPickerOpenRef.current) return
+
+    isPaletteEditColorPickerOpenRef.current = false
+    const color = paletteEditColorDraftRef.current
+    const index = editingPaletteColorIndex
+
+    setEditingPaletteColorIndex(null)
+
+    if (!color || index === null) return
+    updatePaletteColor(index, color)
   }
 
   const clampCanvasSize = (value: number) => Math.min(maxCanvasSize, Math.max(8, value || 8))
@@ -344,6 +405,28 @@ export function ToolbarWidget({
           {renderHeader(blockId, <Palette className="h-5 w-5" />, 'Палитра')}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
+              <select
+                value={activePalettePresetId}
+                onChange={(event) => applyPalettePreset(event.target.value)}
+                className="w-full rounded-xl border-2 border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-primary-400 focus:border-primary-500 focus:outline-none"
+              >
+                {palettePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={createPalettePreset}
+                className="flex h-11 shrink-0 items-center justify-center rounded-xl border-2 border-gray-200 bg-gray-50 px-3 text-gray-600 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
+                title="Create palette from current colors"
+                aria-label="Create palette from current colors"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="hidden items-center gap-2">
               <input
                 type="color"
                 value={pickerColor}
@@ -353,27 +436,59 @@ export function ToolbarWidget({
               <button
                 type="button"
                 onClick={handleAddPaletteColor}
-                className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
+                className="hidden rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
                 title="Добавить цвет в палитру"
                 aria-label="Добавить цвет в палитру"
               >
                 <Plus className="h-4 w-4" />
               </button>
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              {paletteColors.map((color) => (
+            <div className="grid grid-cols-5 gap-2">
+              {paletteColors.map((color, index) => (
                 <motion.div
-                  key={color}
+                  key={`${color}-${index}`}
                   className={`color-swatch ${selectedColor === color ? 'selected' : ''}`}
                   style={{ backgroundColor: color }}
                   onClick={() => {
                     setSelectedColor(color)
                     setPickerColor(color)
                   }}
+                  onDoubleClick={() => handleEditPaletteColor(index, color)}
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                 />
               ))}
+              <input
+                ref={paletteEditColorInputRef}
+                type="color"
+                value={pickerColor}
+                onInput={(event) => handlePaletteEditColorPreview((event.target as HTMLInputElement).value)}
+                onChange={commitPaletteEditColorPicked}
+                onBlur={commitPaletteEditColorPicked}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+              <input
+                ref={paletteColorInputRef}
+                type="color"
+                value={pickerColor}
+                onInput={(event) => handlePaletteColorPreview((event.target as HTMLInputElement).value)}
+                onChange={commitPaletteColorPicked}
+                onBlur={commitPaletteColorPicked}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+              <button
+                type="button"
+                onClick={handleAddPaletteColor}
+                className="flex aspect-square w-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 text-gray-500 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
+                title="Add color to palette"
+                aria-label="Add color to palette"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </motion.div>

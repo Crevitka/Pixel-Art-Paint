@@ -7,7 +7,12 @@ interface ColorContextType {
   pickerColor: string
   setPickerColor: (color: string) => void
   paletteColors: string[]
+  palettePresets: { id: string; label: string; colors: string[] }[]
+  activePalettePresetId: string
+  applyPalettePreset: (presetId: string) => void
+  createPalettePreset: () => void
   addPaletteColor: (color: string) => void
+  updatePaletteColor: (index: number, color: string) => void
 }
 
 const ColorContext = createContext<ColorContextType | undefined>(undefined)
