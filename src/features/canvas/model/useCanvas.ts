@@ -166,6 +166,22 @@ export function useCanvas() {
     setActiveLayerId(nextId)
   }, [pushHistory])
 
+  const addLayerWithPixels = useCallback((pixels: Map<string, string>, name?: string) => {
+    pushHistory()
+    const nextLayerNumber = nextLayerNumberRef.current
+    nextLayerNumberRef.current += 1
+    const nextId = `layer-${nextLayerNumber}`
+
+    setLayers((currentLayers) => [
+      {
+        ...createLayer(nextId, name?.trim() || `Слой ${nextLayerNumber}`),
+        pixels: new Map(pixels)
+      },
+      ...currentLayers
+    ])
+    setActiveLayerId(nextId)
+  }, [pushHistory])
+
   const removeLayer = useCallback((layerId: string) => {
     if (layers.length === 1) return
     pushHistory()
@@ -243,6 +259,7 @@ export function useCanvas() {
     isReferenceVisible,
     setIsReferenceVisible,
     addLayer,
+    addLayerWithPixels,
     removeLayer,
     toggleLayerVisibility,
     renameLayer,

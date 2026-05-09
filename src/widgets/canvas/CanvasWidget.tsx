@@ -22,6 +22,13 @@ type ClipboardSelection = {
   sourceBounds: LayerBounds
 }
 
+type PendingPastedImage = {
+  blob: Blob
+  previewUrl: string
+  width: number
+  height: number
+}
+
 type TransformHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se' | 'rotate'
 
 const HANDLE_SIZE = 10
@@ -69,6 +76,14 @@ function getVisibleLayerColorAtPoint(layers: Layer[], x: number, y: number) {
   }
 
   return '#ffffff'
+}
+
+function rgbaToHex(r: number, g: number, b: number) {
+  return `#${[r, g, b].map((value) => value.toString(16).padStart(2, '0')).join('')}`
+}
+
+function blendChannelOverWhite(channel: number, alpha: number) {
+  return Math.round(channel * alpha + 255 * (1 - alpha))
 }
 
 function isEditableElement(target: EventTarget | null) {
@@ -659,6 +674,59 @@ function pasteClipboardPixels(
   return nextPixels
 }
 
+function loadImageFromBlob(blob: Blob) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(blob)
+    const image = new Image()
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(image)
+    }
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Failed to load pasted image'))
+    }
+
+    image.src = objectUrl
+  })
+}
+
+function imageToPixelMap(image: HTMLImageElement, canvasSize: CanvasSize) {
+  const width = Math.min(canvasSize.width, image.naturalWidth || image.width)
+  const height = Math.min(canvasSize.height, image.naturalHeight || image.height)
+  const renderCanvas = document.createElement('canvas')
+  renderCanvas.width = width
+  renderCanvas.height = height
+
+  const ctx = renderCanvas.getContext('2d')
+  if (!ctx) return new Map<string, string>()
+
+  ctx.clearRect(0, 0, width, height)
+  ctx.drawImage(image, 0, 0, width, height)
+
+  const imageData = ctx.getImageData(0, 0, width, height)
+  const nextPixels = new Map<string, string>()
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4
+      const alphaByte = imageData.data[offset + 3]
+      if (alphaByte === 0) continue
+
+      const alpha = alphaByte / 255
+      const r = blendChannelOverWhite(imageData.data[offset], alpha)
+      const g = blendChannelOverWhite(imageData.data[offset + 1], alpha)
+      const b = blendChannelOverWhite(imageData.data[offset + 2], alpha)
+
+      nextPixels.set(`${x},${y}`, rgbaToHex(r, g, b))
+    }
+  }
+
+  return nextPixels
+}
+
 export function CanvasWidget() {
   const {
     canvasSize,
@@ -670,6 +738,7 @@ export function CanvasWidget() {
     referenceOpacity,
     referenceScale,
     isReferenceVisible,
+    setReferenceImageUrl,
     setMinZoom,
     setZoom,
     setIsDrawing,
@@ -679,11 +748,12 @@ export function CanvasWidget() {
     setPixels,
     pushHistory,
     undo,
+    addLayerWithPixels,
     translateLayer,
     canvasRef
   } = useCanvasContext()
 
-  const { selectedTool, brushSize } = useToolContext()
+  const { selectedTool, setSelectedTool, brushSize } = useToolContext()
   const { selectedColor, setSelectedColor, setPickerColor } = useColorContext()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -704,6 +774,7 @@ export function CanvasWidget() {
   const minZoomCenterFrameRef = useRef<number | null>(null)
   const previousCanvasSizeRef = useRef(canvasSize)
   const previousContainerSizeRef = useRef<{ width: number; height: number } | null>(null)
+  const pendingPastedImageUrlRef = useRef<string | null>(null)
   const clipboardRef = useRef<ClipboardSelection | null>(null)
   const scaleHandleRef = useRef<TransformHandle | null>(null)
   const scaleStartRef = useRef<{ bounds: LayerBounds; pixels: Map<string, string> } | null>(null)
@@ -730,6 +801,7 @@ export function CanvasWidget() {
   const [rotatePreviewAngle, setRotatePreviewAngle] = useState(0)
   const [selectionBounds, setSelectionBounds] = useState<LayerBounds | null>(null)
   const [selectionPreviewBounds, setSelectionPreviewBounds] = useState<LayerBounds | null>(null)
+  const [pendingPastedImage, setPendingPastedImage] = useState<PendingPastedImage | null>(null)
 
   const pixelDisplaySize = 16
   const canvasWidth = canvasSize.width * pixelDisplaySize
@@ -804,6 +876,42 @@ export function CanvasWidget() {
     clipboardRef.current = {
       ...clipboard,
       sourceBounds: nextSelectionBounds
+    }
+  }
+
+  const clearPendingPastedImage = () => {
+    setPendingPastedImage((currentImage) => {
+      if (currentImage?.previewUrl) {
+        URL.revokeObjectURL(currentImage.previewUrl)
+      }
+      pendingPastedImageUrlRef.current = null
+      return null
+    })
+  }
+
+  const insertPendingImageAsReference = () => {
+    if (!pendingPastedImage) return
+
+    if (referenceImageUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(referenceImageUrl)
+    }
+
+    setReferenceImageUrl(pendingPastedImage.previewUrl)
+    pendingPastedImageUrlRef.current = null
+
+    setPendingPastedImage(null)
+  }
+
+  const insertPendingImageAsLayer = async () => {
+    if (!pendingPastedImage) return
+
+    try {
+      const image = await loadImageFromBlob(pendingPastedImage.blob)
+      const nextPixels = imageToPixelMap(image, canvasSize)
+      addLayerWithPixels(nextPixels, 'Pasted image')
+      clearPendingPastedImage()
+    } catch {
+      clearPendingPastedImage()
     }
   }
 
@@ -979,13 +1087,8 @@ export function CanvasWidget() {
         return
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV' && !isEditableElement(event.target)) {
-        event.preventDefault()
-        pasteSelection()
-        return
-      }
-
       if (event.key === 'Escape') {
+        clearPendingPastedImage()
         setSelectionBounds(null)
         setSelectionPreviewBounds(null)
         selectionStartRef.current = null
@@ -1029,7 +1132,76 @@ export function CanvasWidget() {
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [copySelection, cutSelection, pasteSelection, undo])
+  }, [clearPendingPastedImage, copySelection, cutSelection, undo])
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (isEditableElement(event.target) || isEditableElement(document.activeElement)) return
+
+      const clipboardData = event.clipboardData
+      if (!clipboardData) return
+
+      const imageItem = Array.from(clipboardData.items).find((item) => item.type.startsWith('image/'))
+      if (imageItem) {
+        const file = imageItem.getAsFile()
+        if (!file) return
+
+        event.preventDefault()
+
+        const previewUrl = URL.createObjectURL(file)
+        pendingPastedImageUrlRef.current = previewUrl
+
+        setPendingPastedImage((currentImage) => {
+          if (currentImage?.previewUrl) {
+            URL.revokeObjectURL(currentImage.previewUrl)
+          }
+
+          return {
+            blob: file,
+            previewUrl,
+            width: 0,
+            height: 0
+          }
+        })
+
+        void loadImageFromBlob(file)
+          .then((image) => {
+            setPendingPastedImage((currentImage) => {
+              if (!currentImage || currentImage.blob !== file) return currentImage
+
+              return {
+                ...currentImage,
+                width: image.naturalWidth || image.width,
+                height: image.naturalHeight || image.height
+              }
+            })
+          })
+          .catch(() => {
+            clearPendingPastedImage()
+          })
+
+        return
+      }
+
+      if (clipboardRef.current) {
+        event.preventDefault()
+        pasteSelection()
+      }
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => {
+      window.removeEventListener('paste', handlePaste)
+    }
+  }, [pasteSelection])
+
+  useEffect(() => {
+    return () => {
+      if (pendingPastedImageUrlRef.current) {
+        URL.revokeObjectURL(pendingPastedImageUrlRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -1317,6 +1489,7 @@ export function CanvasWidget() {
       const pickedColor = getVisibleLayerColorAtPoint(layers, clampedCoords.x, clampedCoords.y)
       setSelectedColor(pickedColor)
       setPickerColor(pickedColor)
+      setSelectedTool('pencil')
       setIsDrawing(false)
       return
     }
@@ -1953,7 +2126,7 @@ export function CanvasWidget() {
 
   return (
     <motion.div
-      className="glass-effect rounded-2xl p-5 flex h-full flex-col min-w-0 min-h-0"
+      className="glass-effect relative rounded-2xl p-5 flex h-full flex-col min-w-0 min-h-0"
       initial={{ x: 20, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ duration: 0.5, delay: 0.2 }}
@@ -2071,6 +2244,64 @@ export function CanvasWidget() {
           </TransformComponent>
         </TransformWrapper>
       </div>
+      {pendingPastedImage ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-slate-950/35 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/60 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Вставить изображение</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Выберите, как добавить изображение из буфера обмена.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={clearPendingPastedImage}
+                className="rounded-lg px-2 py-1 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+              >
+                Отмена
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <img
+                src={pendingPastedImage.previewUrl}
+                alt="Предпросмотр вставленного изображения"
+                className="h-20 w-20 rounded-lg border border-slate-200 bg-white object-contain"
+              />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-900">
+                  {pendingPastedImage.width > 0 && pendingPastedImage.height > 0
+                    ? `${pendingPastedImage.width}×${pendingPastedImage.height}px`
+                    : 'Определяем размер...'}
+                </div>
+                <p className="mt-1 text-sm text-slate-600">
+                  Как новый слой изображение будет вставлено в левый верхний угол и обрежется по размеру холста.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void insertPendingImageAsLayer()
+                }}
+                className="rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+              >
+                Вставить как слой
+              </button>
+              <button
+                type="button"
+                onClick={insertPendingImageAsReference}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+              >
+                Вставить как референс
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <motion.div
         className="mt-3 flex shrink-0 items-center gap-3 rounded-xl border border-gray-200 bg-white/70 px-4 py-3"
         initial={{ opacity: 0 }}
