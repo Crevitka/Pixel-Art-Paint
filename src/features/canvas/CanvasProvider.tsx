@@ -2,6 +2,17 @@ import { createContext, useContext, ReactNode } from 'react'
 import { useCanvas } from './model/useCanvas'
 import { CanvasSize, Layer, MousePosition } from '@/shared/types'
 
+type CanvasProjectState = {
+  canvasSize: CanvasSize
+  layers: Layer[]
+  activeLayerId: string
+  referenceImageUrl: string | null
+  referenceOpacity: number
+  referenceScale: number
+  isReferenceVisible: boolean
+  nextLayerNumber: number
+}
+
 interface CanvasContextType {
   canvasSize: CanvasSize
   setCanvasSize: (size: CanvasSize) => void
@@ -35,6 +46,7 @@ interface CanvasContextType {
   pushHistory: () => void
   undo: () => void
   clearCanvas: () => void
+  loadCanvasProjectState: (state: CanvasProjectState) => void
   canvasRef: React.RefObject<HTMLCanvasElement | null>
 }
 

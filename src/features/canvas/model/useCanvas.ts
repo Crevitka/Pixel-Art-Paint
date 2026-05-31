@@ -240,6 +240,27 @@ export function useCanvas() {
     )
   }, [canvasSize.height, canvasSize.width])
 
+  const loadCanvasProjectState = useCallback((state: {
+    canvasSize: CanvasSize
+    layers: Layer[]
+    activeLayerId: string
+    referenceImageUrl: string | null
+    referenceOpacity: number
+    referenceScale: number
+    isReferenceVisible: boolean
+    nextLayerNumber: number
+  }) => {
+    historyRef.current = []
+    nextLayerNumberRef.current = Math.max(2, state.nextLayerNumber)
+    setCanvasSizeState(state.canvasSize)
+    setLayers(cloneLayers(state.layers))
+    setActiveLayerId(state.activeLayerId)
+    setReferenceImageUrl(state.referenceImageUrl)
+    setReferenceOpacity(state.referenceOpacity)
+    setReferenceScaleState(Math.min(4, Math.max(0.1, state.referenceScale)))
+    setIsReferenceVisible(state.isReferenceVisible)
+  }, [])
+
   return {
     canvasSize,
     setCanvasSize,
@@ -273,6 +294,7 @@ export function useCanvas() {
     pushHistory,
     undo,
     clearCanvas,
+    loadCanvasProjectState,
     canvasRef
   }
 }

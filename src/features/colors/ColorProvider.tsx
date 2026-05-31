@@ -13,6 +13,13 @@ interface ColorContextType {
   createPalettePreset: () => void
   addPaletteColor: (color: string) => void
   updatePaletteColor: (index: number, color: string) => void
+  loadColorProjectState: (state: {
+    selectedColor: string
+    pickerColor: string
+    paletteColors: string[]
+    palettePresets: { id: string; label: string; colors: string[] }[]
+    activePalettePresetId: string
+  }) => void
 }
 
 const ColorContext = createContext<ColorContextType | undefined>(undefined)

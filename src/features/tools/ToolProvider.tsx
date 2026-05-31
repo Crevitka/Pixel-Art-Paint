@@ -13,6 +13,10 @@ interface ToolContextType {
   setSelectedTool: Dispatch<SetStateAction<Tool>>
   brushSize: number
   setBrushSize: (size: number) => void
+  loadToolProjectState: (state: {
+    selectedTool: Tool
+    brushSize: number
+  }) => void
 }
 
 const ToolContext = createContext<ToolContextType | undefined>(undefined)

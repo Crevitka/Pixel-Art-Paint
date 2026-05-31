@@ -1,40 +1,14 @@
 import { useState } from 'react'
-
-const defaultPalettePresets = [
-  {
-    id: 'basic',
-    label: 'Basic',
-    colors: [
-      '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
-      '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#800080',
-      '#008000', '#ffc0cb'
-    ]
-  },
-  {
-    id: 'gameboy',
-    label: 'Game Boy',
-    colors: ['#0f380f', '#306230', '#8bac0f', '#9bbc0f']
-  },
-  {
-    id: 'dawn',
-    label: 'Dawn',
-    colors: ['#1d1b2a', '#5b3558', '#b45a6f', '#f4b36a', '#f8f4e3']
-  },
-  {
-    id: 'ocean',
-    label: 'Ocean',
-    colors: ['#041c32', '#04293a', '#064663', '#3b82f6', '#a5f3fc']
-  }
-] as const
+import { DEFAULT_PALETTE_PRESETS } from '@/shared/lib/project'
 
 export function useColors() {
   const [selectedColor, setSelectedColor] = useState('#000000')
   const [pickerColor, setPickerColor] = useState('#000000')
   const [palettePresets, setPalettePresets] = useState(
-    defaultPalettePresets.map((preset) => ({ ...preset, colors: [...preset.colors] }))
+    DEFAULT_PALETTE_PRESETS.map((preset) => ({ ...preset, colors: [...preset.colors] }))
   )
-  const [activePalettePresetId, setActivePalettePresetId] = useState(defaultPalettePresets[0].id)
-  const [paletteColors, setPaletteColors] = useState([...defaultPalettePresets[0].colors])
+  const [activePalettePresetId, setActivePalettePresetId] = useState(DEFAULT_PALETTE_PRESETS[0].id)
+  const [paletteColors, setPaletteColors] = useState([...DEFAULT_PALETTE_PRESETS[0].colors])
 
   const applyPalettePreset = (presetId: string) => {
     const preset = palettePresets.find((item) => item.id === presetId)
@@ -84,6 +58,23 @@ export function useColors() {
     setPickerColor(normalizedColor)
   }
 
+  const loadColorProjectState = (state: {
+    selectedColor: string
+    pickerColor: string
+    paletteColors: string[]
+    palettePresets: { id: string; label: string; colors: string[] }[]
+    activePalettePresetId: string
+  }) => {
+    setSelectedColor(state.selectedColor)
+    setPickerColor(state.pickerColor)
+    setPaletteColors([...state.paletteColors])
+    setPalettePresets(state.palettePresets.map((preset) => ({
+      ...preset,
+      colors: [...preset.colors]
+    })))
+    setActivePalettePresetId(state.activePalettePresetId)
+  }
+
   return {
     selectedColor,
     setSelectedColor,
@@ -95,6 +86,7 @@ export function useColors() {
     applyPalettePreset,
     createPalettePreset,
     addPaletteColor,
-    updatePaletteColor
+    updatePaletteColor,
+    loadColorProjectState
   }
 } 

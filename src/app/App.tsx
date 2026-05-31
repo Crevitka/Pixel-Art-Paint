@@ -1,8 +1,22 @@
-import { motion } from 'framer-motion'
-import { useMemo, useState } from 'react'
-import { HeaderWidget } from '@/widgets/header'
-import { ToolbarWidget, type ToolbarBlockId, type ToolbarPanelId } from '@/widgets/toolbar'
-import { CanvasWidget } from '@/widgets/canvas'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCanvasContext } from '@/features/canvas'
+import { useColorContext } from '@/features/colors'
+import { useToolContext } from '@/features/tools'
+import {
+  deserializeLayers,
+  getProjectTemplates,
+  getRecentProjects,
+  readProjectFile,
+  saveProjectTemplate,
+  saveRecentProject,
+  subscribeToProjectTemplates,
+  subscribeToRecentProjects,
+  type PixelArtProject,
+  type StartTemplate
+} from '@/shared/lib/project'
+import { EditorPage } from '@/pages/editor'
+import { WelcomePage } from '@/pages/welcome'
+import type { ToolbarBlockId, ToolbarPanelId } from '@/widgets/toolbar'
 
 type DragOverTarget = {
   panelId: ToolbarPanelId
@@ -10,6 +24,16 @@ type DragOverTarget = {
 } | null
 
 type PanelBlocks = Record<ToolbarPanelId, ToolbarBlockId[]>
+
+type ProjectFileHandle = FileSystemFileHandle | null
+
+type OpenFilePicker = (options?: {
+  multiple?: boolean
+  types?: Array<{
+    description?: string
+    accept: Record<string, string[]>
+  }>
+}) => Promise<FileSystemFileHandle[]>
 
 const INITIAL_PANEL_BLOCKS: PanelBlocks = {
   left: ['tools', 'canvas', 'palette', 'brush', 'layers'],
@@ -23,18 +47,104 @@ const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
   right: ['tools', 'canvas', 'palette', 'brush', 'layers']
 }
 
+function createProjectFromTemplate(template: StartTemplate): PixelArtProject {
+  const templateColors = template.paletteColors.length > 0
+    ? [...template.paletteColors]
+    : ['#000000', '#ffffff']
+
+  return {
+    version: 1,
+    canvas: {
+      canvasSize: template.size,
+      layers: [
+        {
+          id: 'layer-1',
+          name: 'Слой 1',
+          visible: true,
+          pixels: []
+        }
+      ],
+      activeLayerId: 'layer-1',
+      referenceImageUrl: null,
+      referenceOpacity: 0.45,
+      referenceScale: 1,
+      isReferenceVisible: true,
+      nextLayerNumber: 2
+    },
+    colors: {
+      selectedColor: templateColors[0],
+      pickerColor: templateColors[0],
+      paletteColors: templateColors,
+      palettePresets: [
+        {
+          id: template.id,
+          label: template.title,
+          colors: templateColors
+        }
+      ],
+      activePalettePresetId: template.id
+    },
+    tools: {
+      selectedTool: 'pencil',
+      brushSize: 1
+    }
+  }
+}
+
+function createBlankProject() {
+  return createProjectFromTemplate({
+    id: 'blank-32',
+    title: 'Пустой 32x32',
+    description: 'Пустой холст для нового проекта.',
+    size: { width: 32, height: 32 },
+    paletteColors: ['#000000', '#ffffff']
+  })
+}
+
 export function App() {
+  const { loadCanvasProjectState } = useCanvasContext()
+  const { loadColorProjectState } = useColorContext()
+  const { loadToolProjectState } = useToolContext()
+
+  const [pathname, setPathname] = useState(() => window.location.pathname)
+  const [recentProjects, setRecentProjects] = useState(() => getRecentProjects())
+  const [projectTemplates, setProjectTemplates] = useState(() => getProjectTemplates())
+  const [currentProjectHandle, setCurrentProjectHandle] = useState<ProjectFileHandle>(null)
+  const [currentProjectName, setCurrentProjectName] = useState<string | null>(null)
   const [panelBlocks, setPanelBlocks] = useState<PanelBlocks>(INITIAL_PANEL_BLOCKS)
   const [draggingBlockId, setDraggingBlockId] = useState<ToolbarBlockId | null>(null)
   const [dragOverTarget, setDragOverTarget] = useState<DragOverTarget>(null)
+  const openProjectInputRef = useRef<HTMLInputElement>(null)
 
-  const centerPanelHasBlocks = panelBlocks.center.length > 0
-  const rightPanelHasBlocks = panelBlocks.right.length > 0
-  const shouldShowCenterPanel = centerPanelHasBlocks || draggingBlockId === 'tools'
-  const shouldShowRightPanel = rightPanelHasBlocks || draggingBlockId !== null
-  const desktopGridClass = shouldShowRightPanel
-    ? 'lg:grid-cols-[300px_minmax(0,1fr)_300px]'
-    : 'lg:grid-cols-[300px_minmax(0,1fr)]'
+  useEffect(() => {
+    const handlePopState = () => {
+      setPathname(window.location.pathname)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [])
+
+  useEffect(() => {
+    return subscribeToRecentProjects(() => {
+      setRecentProjects(getRecentProjects())
+    })
+  }, [])
+
+  useEffect(() => {
+    return subscribeToProjectTemplates(() => {
+      setProjectTemplates(getProjectTemplates())
+    })
+  }, [])
+
+  const navigateTo = (nextPathname: '/' | '/editor') => {
+    if (window.location.pathname !== nextPathname) {
+      window.history.pushState({}, '', nextPathname)
+    }
+    setPathname(nextPathname)
+  }
 
   const blockPanelMap = useMemo(() => {
     const map = new Map<ToolbarBlockId, ToolbarPanelId>()
@@ -43,6 +153,125 @@ export function App() {
     panelBlocks.right.forEach((blockId) => map.set(blockId, 'right'))
     return map
   }, [panelBlocks])
+
+  const applyProject = (
+    project: PixelArtProject,
+    options?: {
+      recentName?: string
+      projectHandle?: ProjectFileHandle
+      projectName?: string | null
+    }
+  ) => {
+    loadCanvasProjectState({
+      canvasSize: project.canvas.canvasSize,
+      layers: deserializeLayers(project.canvas.layers),
+      activeLayerId: project.canvas.activeLayerId,
+      referenceImageUrl: project.canvas.referenceImageUrl,
+      referenceOpacity: project.canvas.referenceOpacity,
+      referenceScale: project.canvas.referenceScale,
+      isReferenceVisible: project.canvas.isReferenceVisible,
+      nextLayerNumber: project.canvas.nextLayerNumber
+    })
+
+    loadColorProjectState(project.colors)
+    loadToolProjectState(project.tools)
+    setCurrentProjectHandle(options?.projectHandle ?? null)
+    setCurrentProjectName(options?.projectName ?? options?.recentName ?? null)
+    setPanelBlocks(INITIAL_PANEL_BLOCKS)
+    setDraggingBlockId(null)
+    setDragOverTarget(null)
+
+    if (options?.recentName) {
+      saveRecentProject({
+        name: options.recentName,
+        project
+      })
+      setRecentProjects(getRecentProjects())
+    }
+
+    navigateTo('/editor')
+  }
+
+  const loadProjectFile = async (file: File, projectHandle: ProjectFileHandle = null) => {
+    const project = await readProjectFile(file)
+    if (project.version !== 1) {
+      throw new Error('Unsupported project version')
+    }
+    applyProject(project, {
+      recentName: file.name,
+      projectHandle,
+      projectName: file.name
+    })
+  }
+
+  const handleOpenProject = async () => {
+    const filePicker = (window as Window & {
+      showOpenFilePicker?: OpenFilePicker
+    }).showOpenFilePicker
+
+    if (filePicker) {
+      try {
+        const [handle] = await filePicker({
+          multiple: false,
+          types: [
+            {
+              description: 'Pixel Art Paint project',
+              accept: {
+                'application/json': ['.pap.json', '.json']
+              }
+            }
+          ]
+        })
+
+        if (!handle) return
+        const file = await handle.getFile()
+        await loadProjectFile(file, handle)
+        return
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return
+        }
+      }
+    }
+
+    openProjectInputRef.current?.click()
+  }
+
+  const handleOpenProjectInput = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    await loadProjectFile(file)
+  }
+
+  const handleCreateProject = () => {
+    applyProject(createBlankProject(), {
+      recentName: 'Новый проект',
+      projectHandle: null,
+      projectName: null
+    })
+  }
+
+  const handleCreateFromTemplate = (template: StartTemplate) => {
+    applyProject(createProjectFromTemplate(template), {
+      recentName: template.title,
+      projectHandle: null,
+      projectName: null
+    })
+  }
+
+  const handleSaveTemplate = (template: Omit<StartTemplate, 'id' | 'isBuiltIn'>) => {
+    saveProjectTemplate(template)
+    setProjectTemplates(getProjectTemplates())
+  }
+
+  const handleOpenRecentProject = (project: PixelArtProject, name: string) => {
+    applyProject(project, {
+      recentName: name,
+      projectHandle: null,
+      projectName: name
+    })
+  }
 
   const moveBlock = (blockId: ToolbarBlockId, targetPanelId: ToolbarPanelId, targetBlockId: ToolbarBlockId | null) => {
     const sourcePanelId = blockPanelMap.get(blockId)
@@ -104,79 +333,44 @@ export function App() {
     setDragOverTarget(null)
   }
 
-  const mobileBlockOrder = [...panelBlocks.left, ...panelBlocks.center, ...panelBlocks.right]
+  if (pathname !== '/editor') {
+    return (
+      <>
+        <input
+          ref={openProjectInputRef}
+          type="file"
+          accept=".pap.json,.json,application/json"
+          onChange={handleOpenProjectInput}
+          className="hidden"
+        />
+        <WelcomePage
+          templates={projectTemplates}
+          recentProjects={recentProjects}
+          onOpenProject={handleOpenProject}
+          onOpenRecentProject={handleOpenRecentProject}
+          onCreateProject={handleCreateProject}
+          onCreateFromTemplate={handleCreateFromTemplate}
+          onSaveTemplate={handleSaveTemplate}
+        />
+      </>
+    )
+  }
 
   return (
-    <motion.div
-      className="max-w-7xl mx-auto p-5 h-screen overflow-hidden"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-    >
-      <HeaderWidget />
-      <main className={`grid grid-cols-1 ${desktopGridClass} gap-5 h-[calc(100vh-140px)] min-h-0`}>
-        <div className="hidden lg:block min-h-0">
-          <ToolbarWidget
-            panelId="left"
-            blockIds={panelBlocks.left}
-            draggingBlockId={draggingBlockId}
-            dragOverTarget={dragOverTarget}
-            onBlockDragStart={handleBlockDragStart}
-            onBlockDragEnd={handleBlockDragEnd}
-            onBlockDragOver={handleBlockDragOver}
-            onBlockDrop={handleBlockDrop}
-          />
-        </div>
-
-        <div className={`min-h-0 h-full flex flex-col ${shouldShowCenterPanel ? 'gap-4' : ''}`}>
-          {shouldShowCenterPanel ? (
-            <div className="hidden lg:block shrink-0">
-              <ToolbarWidget
-                panelId="center"
-                blockIds={panelBlocks.center}
-                draggingBlockId={draggingBlockId}
-                dragOverTarget={dragOverTarget}
-                onBlockDragStart={handleBlockDragStart}
-                onBlockDragEnd={handleBlockDragEnd}
-                onBlockDragOver={handleBlockDragOver}
-                onBlockDrop={handleBlockDrop}
-              />
-            </div>
-          ) : null}
-
-          <div className="min-h-0 h-full flex-1">
-            <CanvasWidget />
-          </div>
-        </div>
-
-        {shouldShowRightPanel ? (
-          <div className="hidden lg:block min-h-0">
-            <ToolbarWidget
-              panelId="right"
-              blockIds={panelBlocks.right}
-              draggingBlockId={draggingBlockId}
-              dragOverTarget={dragOverTarget}
-              onBlockDragStart={handleBlockDragStart}
-              onBlockDragEnd={handleBlockDragEnd}
-              onBlockDragOver={handleBlockDragOver}
-              onBlockDrop={handleBlockDrop}
-            />
-          </div>
-        ) : null}
-
-        <div className="lg:hidden min-h-0">
-          <ToolbarWidget
-            panelId="left"
-            blockIds={mobileBlockOrder}
-            draggingBlockId={null}
-            dragOverTarget={null}
-            onBlockDragStart={() => {}}
-            onBlockDragEnd={() => {}}
-            onBlockDragOver={() => {}}
-            onBlockDrop={() => {}}
-          />
-        </div>
-      </main>
-    </motion.div>
+    <EditorPage
+      currentProjectHandle={currentProjectHandle}
+      currentProjectName={currentProjectName}
+      onProjectFileChange={(handle, name) => {
+        setCurrentProjectHandle(handle)
+        setCurrentProjectName(name)
+      }}
+      panelBlocks={panelBlocks}
+      draggingBlockId={draggingBlockId}
+      dragOverTarget={dragOverTarget}
+      onBlockDragStart={handleBlockDragStart}
+      onBlockDragEnd={handleBlockDragEnd}
+      onBlockDragOver={handleBlockDragOver}
+      onBlockDrop={handleBlockDrop}
+    />
   )
 }
