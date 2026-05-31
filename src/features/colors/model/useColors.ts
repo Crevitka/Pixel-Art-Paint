@@ -58,6 +58,26 @@ export function useColors() {
     setPickerColor(normalizedColor)
   }
 
+  const reorderPaletteColor = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return
+
+    setPaletteColors((currentColors) => {
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= currentColors.length ||
+        toIndex >= currentColors.length
+      ) {
+        return currentColors
+      }
+
+      const nextColors = [...currentColors]
+      const [movedColor] = nextColors.splice(fromIndex, 1)
+      nextColors.splice(toIndex, 0, movedColor)
+      return nextColors
+    })
+  }
+
   const loadColorProjectState = (state: {
     selectedColor: string
     pickerColor: string
@@ -87,6 +107,7 @@ export function useColors() {
     createPalettePreset,
     addPaletteColor,
     updatePaletteColor,
+    reorderPaletteColor,
     loadColorProjectState
   }
 } 

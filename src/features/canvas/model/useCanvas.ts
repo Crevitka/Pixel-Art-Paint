@@ -182,6 +182,32 @@ export function useCanvas() {
     setActiveLayerId(nextId)
   }, [pushHistory])
 
+  const reorderLayer = useCallback((
+    layerId: string,
+    targetLayerId: string,
+    position: 'before' | 'after' = 'before'
+  ) => {
+    if (layerId === targetLayerId) return
+
+    pushHistory()
+    setLayers((currentLayers) => {
+      const sourceIndex = currentLayers.findIndex((layer) => layer.id === layerId)
+      const targetIndex = currentLayers.findIndex((layer) => layer.id === targetLayerId)
+
+      if (sourceIndex === -1 || targetIndex === -1) return currentLayers
+
+      const nextLayers = [...currentLayers]
+      const [movedLayer] = nextLayers.splice(sourceIndex, 1)
+      const baseTargetIndex = nextLayers.findIndex((layer) => layer.id === targetLayerId)
+
+      if (baseTargetIndex === -1) return currentLayers
+
+      const insertIndex = position === 'after' ? baseTargetIndex + 1 : baseTargetIndex
+      nextLayers.splice(insertIndex, 0, movedLayer)
+      return nextLayers
+    })
+  }, [pushHistory])
+
   const removeLayer = useCallback((layerId: string) => {
     if (layers.length === 1) return
     pushHistory()
@@ -281,6 +307,7 @@ export function useCanvas() {
     setIsReferenceVisible,
     addLayer,
     addLayerWithPixels,
+    reorderLayer,
     removeLayer,
     toggleLayerVisibility,
     renameLayer,

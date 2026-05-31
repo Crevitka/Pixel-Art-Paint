@@ -33,6 +33,7 @@ interface CanvasContextType {
   setIsReferenceVisible: (visible: boolean) => void
   addLayer: () => void
   addLayerWithPixels: (pixels: Map<string, string>, name?: string) => void
+  reorderLayer: (layerId: string, targetLayerId: string, position?: 'before' | 'after') => void
   removeLayer: (layerId: string) => void
   toggleLayerVisibility: (layerId: string) => void
   renameLayer: (layerId: string, name: string) => void

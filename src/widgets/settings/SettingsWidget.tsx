@@ -1,19 +1,20 @@
 import { motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, Keyboard, Settings, X } from 'lucide-react'
+import { Grid3X3, Keyboard, Settings, X, Lock, Unlock } from 'lucide-react'
 import { useCanvasContext } from '@/features/canvas'
 
 type SettingsWidgetProps = {
   onClose: () => void
 }
 
-type SettingsTab = 'reference' | 'shortcuts'
+type SettingsTab = 'canvas' | 'shortcuts'
 
 const HOTKEYS = [
+  { keys: 'Ctrl + S', description: 'Сохранить проект' },
   { keys: 'Ctrl + Z', description: 'Отменить действие' },
   { keys: 'Ctrl + C', description: 'Копировать выделение' },
   { keys: 'Ctrl + X', description: 'Вырезать выделение' },
-  { keys: 'Ctrl + V', description: 'Вставить выделение' },
+  { keys: 'Ctrl + V', description: 'Вставить выделение или изображение' },
   { keys: 'Shift', description: 'Рисовать прямую линию' },
   { keys: 'Ctrl', description: 'Перемещение и трансформация слоя' },
   { keys: 'Ctrl + Shift', description: 'Сохранять пропорции при трансформации' },
@@ -26,19 +27,14 @@ const TAB_BUTTON_CLASSES =
   'rounded-xl border-2 px-3 py-2 text-sm font-medium transition-colors'
 
 export function SettingsWidget({ onClose }: SettingsWidgetProps) {
-  const {
-    referenceImageUrl,
-    setReferenceImageUrl,
-    referenceOpacity,
-    setReferenceOpacity,
-    referenceScale,
-    setReferenceScale,
-    isReferenceVisible,
-    setIsReferenceVisible
-  } = useCanvasContext()
+  const { canvasSize, setCanvasSize } = useCanvasContext()
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('reference')
-  const referenceInputRef = useRef<HTMLInputElement>(null)
+  const [activeTab, setActiveTab] = useState<SettingsTab>('canvas')
+  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true)
+  const [widthInput, setWidthInput] = useState(String(canvasSize.width))
+  const [heightInput, setHeightInput] = useState(String(canvasSize.height))
+  const aspectRatioRef = useRef(canvasSize.width / canvasSize.height)
+  const maxCanvasSize = 512
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -54,105 +50,111 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
     }
   }, [onClose])
 
-  const handleOpenReferencePicker = () => {
-    referenceInputRef.current?.click()
-  }
+  useEffect(() => {
+    setWidthInput(String(canvasSize.width))
+    setHeightInput(String(canvasSize.height))
+  }, [canvasSize.height, canvasSize.width])
 
-  const handleReferenceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+  const clampCanvasSize = (value: number) => Math.min(maxCanvasSize, Math.max(8, value || 8))
 
-    if (referenceImageUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(referenceImageUrl)
+  const toggleAspectRatioLock = () => {
+    if (!isAspectRatioLocked) {
+      aspectRatioRef.current = canvasSize.width / canvasSize.height
     }
 
-    setReferenceImageUrl(URL.createObjectURL(file))
-    setIsReferenceVisible(true)
-    event.target.value = ''
+    setIsAspectRatioLocked((current) => !current)
   }
 
-  const handleRemoveReference = () => {
-    if (referenceImageUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(referenceImageUrl)
+  const handleWidthChange = (nextWidthValue: number) => {
+    const nextWidth = clampCanvasSize(nextWidthValue)
+
+    if (!isAspectRatioLocked) {
+      setCanvasSize({
+        ...canvasSize,
+        width: nextWidth
+      })
+      return
     }
 
-    setReferenceImageUrl(null)
+    setCanvasSize({
+      width: nextWidth,
+      height: clampCanvasSize(Math.round(nextWidth / aspectRatioRef.current))
+    })
   }
 
-  const renderReferenceTab = () => (
+  const handleHeightChange = (nextHeightValue: number) => {
+    const nextHeight = clampCanvasSize(nextHeightValue)
+
+    if (!isAspectRatioLocked) {
+      setCanvasSize({
+        ...canvasSize,
+        height: nextHeight
+      })
+      return
+    }
+
+    setCanvasSize({
+      width: clampCanvasSize(Math.round(nextHeight * aspectRatioRef.current)),
+      height: nextHeight
+    })
+  }
+
+  const renderCanvasTab = () => (
     <section className="rounded-2xl border-2 border-gray-200 bg-white p-4 space-y-4">
-      <h3 className="text-base font-semibold text-gray-800">Референс</h3>
-      <input
-        ref={referenceInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleReferenceFileChange}
-        className="hidden"
-      />
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={handleOpenReferencePicker}
-          className="flex-1 min-w-[180px] rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-        >
-          {referenceImageUrl ? 'Заменить' : 'Добавить'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setIsReferenceVisible(!isReferenceVisible)}
-          disabled={!referenceImageUrl}
-          className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
-          title={isReferenceVisible ? 'Скрыть референс' : 'Показать референс'}
-          aria-label={isReferenceVisible ? 'Скрыть референс' : 'Показать референс'}
-        >
-          {isReferenceVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
-          onClick={handleRemoveReference}
-          disabled={!referenceImageUrl}
-          className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-red-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-          title="Удалить референс"
-          aria-label="Удалить референс"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+      <h3 className="flex items-center gap-2 text-base font-semibold text-gray-800">
+        <Grid3X3 className="h-4 w-4" />
+        Размер холста
+      </h3>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-gray-700">Прозрачность</span>
-          <span className="min-w-[52px] text-right font-semibold text-gray-700">
-            {Math.round(referenceOpacity * 100)}%
-          </span>
+          <span className="text-sm font-medium text-gray-700">Ширина и высота</span>
+          <button
+            type="button"
+            onClick={toggleAspectRatioLock}
+            className={`rounded-lg border-2 p-2 transition-colors ${
+              isAspectRatioLocked
+                ? 'border-primary-500 bg-primary-50 text-primary-700'
+                : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
+            }`}
+            aria-pressed={isAspectRatioLocked}
+            aria-label={
+              isAspectRatioLocked
+                ? 'Отключить сохранение пропорций'
+                : 'Включить сохранение пропорций'
+            }
+            title={
+              isAspectRatioLocked
+                ? 'Сохранение пропорций включено'
+                : 'Сохранение пропорций выключено'
+            }
+          >
+            {isAspectRatioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+          </button>
         </div>
-        <input
-          type="range"
-          min="0.05"
-          max="1"
-          step="0.05"
-          value={referenceOpacity}
-          onChange={(event) => setReferenceOpacity(Number(event.target.value))}
-          disabled={!referenceImageUrl}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider disabled:cursor-not-allowed disabled:opacity-40"
-        />
-      </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-gray-700">Масштаб</span>
-          <span className="min-w-[52px] text-right font-semibold text-gray-700">
-            {Math.round(referenceScale * 100)}%
-          </span>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            value={widthInput}
+            onChange={(event) => setWidthInput(event.target.value)}
+            onBlur={() => handleWidthChange(Number(widthInput))}
+            min="8"
+            max={maxCanvasSize}
+            className="w-24 rounded-lg border-2 border-gray-200 px-3 py-2 text-center text-sm focus:border-primary-500 focus:outline-none"
+          />
+          <span className="text-gray-500">×</span>
+          <input
+            type="number"
+            value={heightInput}
+            onChange={(event) => setHeightInput(event.target.value)}
+            onBlur={() => handleHeightChange(Number(heightInput))}
+            min="8"
+            max={maxCanvasSize}
+            className="w-24 rounded-lg border-2 border-gray-200 px-3 py-2 text-center text-sm focus:border-primary-500 focus:outline-none"
+          />
         </div>
-        <input
-          type="range"
-          min="0.1"
-          max="4"
-          step="0.05"
-          value={referenceScale}
-          onChange={(event) => setReferenceScale(Number(event.target.value))}
-          disabled={!referenceImageUrl}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider disabled:cursor-not-allowed disabled:opacity-40"
-        />
+        <p className="text-xs leading-5 text-gray-500">
+          Размер холста можно менять от 8 до 512 пикселей по каждой стороне.
+        </p>
       </div>
     </section>
   )
@@ -203,7 +205,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                 Настройки
               </h2>
               <p className="mt-1 text-sm text-gray-500">
-                Параметры холста, референса и быстрые клавиши редактора.
+                Параметры холста и быстрые клавиши редактора.
               </p>
             </div>
             <button
@@ -220,14 +222,14 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setActiveTab('reference')}
+              onClick={() => setActiveTab('canvas')}
               className={`${TAB_BUTTON_CLASSES} ${
-                activeTab === 'reference'
+                activeTab === 'canvas'
                   ? 'border-primary-500 bg-primary-50 text-primary-700'
                   : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
               }`}
             >
-              Референс
+              Холст
             </button>
             <button
               type="button"
@@ -244,7 +246,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
         </div>
 
         <div className="min-h-0 overflow-y-auto px-6 py-5 md:px-7">
-          {activeTab === 'reference' ? renderReferenceTab() : null}
+          {activeTab === 'canvas' ? renderCanvasTab() : null}
           {activeTab === 'shortcuts' ? renderShortcutsTab() : null}
         </div>
       </motion.div>

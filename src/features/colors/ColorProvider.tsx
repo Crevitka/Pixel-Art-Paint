@@ -13,6 +13,7 @@ interface ColorContextType {
   createPalettePreset: () => void
   addPaletteColor: (color: string) => void
   updatePaletteColor: (index: number, color: string) => void
+  reorderPaletteColor: (fromIndex: number, toIndex: number) => void
   loadColorProjectState: (state: {
     selectedColor: string
     pickerColor: string

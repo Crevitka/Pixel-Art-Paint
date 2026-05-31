@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Download, FolderOpen, Palette, Save, Settings, Trash2 } from 'lucide-react'
 import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
@@ -42,6 +42,13 @@ type HeaderWidgetProps = {
   onProjectFileChange: (handle: FileSystemFileHandle | null, name: string | null) => void
 }
 
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+type SnackbarState = {
+  message: string
+  status: Exclude<SaveStatus, 'idle'>
+} | null
+
 function getNextLayerNumber(layers: Array<{ id: string }>) {
   const maxLayerNumber = layers.reduce((maxNumber, layer) => {
     const match = /^layer-(\d+)$/.exec(layer.id)
@@ -78,11 +85,119 @@ export function HeaderWidget({
   } = useColorContext()
   const { selectedTool, brushSize, loadToolProjectState } = useToolContext()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [snackbar, setSnackbar] = useState<SnackbarState>(null)
   const openProjectInputRef = useRef<HTMLInputElement>(null)
+  const lastSavedProjectTextRef = useRef<string | null>(null)
+  const skipNextAutosaveRef = useRef(true)
+  const autosaveRunIdRef = useRef(0)
 
   const handleClear = () => {
     clearCanvas()
   }
+
+  const buildProject = useCallback(async () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const suggestedName =
+      currentProjectName ?? `pixel-art-project-${canvasSize.width}x${canvasSize.height}-${timestamp}.pap.json`
+
+    const project: PixelArtProject = {
+      version: 1,
+      canvas: {
+        canvasSize,
+        layers: serializeLayers(layers),
+        activeLayerId,
+        referenceImageUrl: await serializeReferenceImage(referenceImageUrl),
+        referenceOpacity,
+        referenceScale,
+        isReferenceVisible,
+        nextLayerNumber: getNextLayerNumber(layers)
+      },
+      colors: {
+        selectedColor,
+        pickerColor,
+        paletteColors: [...paletteColors],
+        palettePresets: palettePresets.map((preset) => ({
+          ...preset,
+          colors: [...preset.colors]
+        })),
+        activePalettePresetId
+      },
+      tools: {
+        selectedTool,
+        brushSize
+      }
+    }
+
+    const projectText = JSON.stringify(project, null, 2)
+
+    return {
+      suggestedName,
+      project,
+      projectText
+    }
+  }, [
+    activeLayerId,
+    activePalettePresetId,
+    brushSize,
+    canvasSize,
+    currentProjectName,
+    isReferenceVisible,
+    layers,
+    paletteColors,
+    palettePresets,
+    pickerColor,
+    referenceImageUrl,
+    referenceOpacity,
+    referenceScale,
+    selectedColor,
+    selectedTool
+  ])
+
+  const persistProject = useCallback(async (options?: {
+    handle?: FileSystemFileHandle | null
+    suggestedName?: string
+    project?: PixelArtProject
+    projectText?: string
+  }) => {
+    const builtProject = options?.project && options?.projectText && options?.suggestedName
+      ? {
+          suggestedName: options.suggestedName,
+          project: options.project,
+          projectText: options.projectText
+        }
+      : await buildProject()
+
+    const projectBlob = new Blob([builtProject.projectText], { type: 'application/json' })
+    const handle = options?.handle ?? currentProjectHandle
+
+    if (handle) {
+      setSaveStatus('saving')
+      const writable = await handle.createWritable()
+      await writable.write(projectBlob)
+      await writable.close()
+      onProjectFileChange(handle, builtProject.suggestedName)
+      saveRecentProject({
+        name: builtProject.suggestedName,
+        project: builtProject.project
+      })
+      lastSavedProjectTextRef.current = builtProject.projectText
+      setSaveStatus('saved')
+      setSnackbar({
+        message: 'Проект сохранен',
+        status: 'saved'
+      })
+      return {
+        handle,
+        ...builtProject
+      }
+    }
+
+    return {
+      handle: null,
+      ...builtProject
+    }
+  }, [buildProject, currentProjectHandle, onProjectFileChange])
 
   const handleExportPng = async () => {
     const exportScale = 16
@@ -153,52 +268,12 @@ export function HeaderWidget({
   }
 
   const handleSaveProject = async () => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const suggestedName =
-      currentProjectName ?? `pixel-art-project-${canvasSize.width}x${canvasSize.height}-${timestamp}.pap.json`
-    const project: PixelArtProject = {
-      version: 1,
-      canvas: {
-        canvasSize,
-        layers: serializeLayers(layers),
-        activeLayerId,
-        referenceImageUrl: await serializeReferenceImage(referenceImageUrl),
-        referenceOpacity,
-        referenceScale,
-        isReferenceVisible,
-        nextLayerNumber: getNextLayerNumber(layers)
-      },
-      colors: {
-        selectedColor,
-        pickerColor,
-        paletteColors: [...paletteColors],
-        palettePresets: palettePresets.map((preset) => ({
-          ...preset,
-          colors: [...preset.colors]
-        })),
-        activePalettePresetId
-      },
-      tools: {
-        selectedTool,
-        brushSize
-      }
-    }
-
-    const projectText = JSON.stringify(project, null, 2)
-    const projectBlob = new Blob([projectText], { type: 'application/json' })
-
     if (currentProjectHandle) {
       try {
-        const writable = await currentProjectHandle.createWritable()
-        await writable.write(projectBlob)
-        await writable.close()
-        onProjectFileChange(currentProjectHandle, suggestedName)
-        saveRecentProject({
-          name: suggestedName,
-          project
-        })
+        await persistProject()
         return
       } catch {
+        setSaveStatus('error')
         // Fall back to Save As when the existing handle is no longer writable.
       }
     }
@@ -209,8 +284,9 @@ export function HeaderWidget({
 
     if (filePicker) {
       try {
+        const builtProject = await buildProject()
         const handle = await filePicker({
-          suggestedName,
+          suggestedName: builtProject.suggestedName,
           types: [
             {
               description: 'Pixel Art Paint project',
@@ -221,32 +297,82 @@ export function HeaderWidget({
           ]
         })
 
-        const writable = await handle.createWritable()
-        await writable.write(projectBlob)
-        await writable.close()
-        onProjectFileChange(handle as FileSystemFileHandle, suggestedName)
-        saveRecentProject({
-          name: suggestedName,
-          project
+        await persistProject({
+          handle: handle as FileSystemFileHandle,
+          suggestedName: builtProject.suggestedName,
+          project: builtProject.project,
+          projectText: builtProject.projectText
         })
         return
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           return
         }
+        setSaveStatus('error')
       }
     }
 
+    const builtProject = await buildProject()
+    const projectBlob = new Blob([builtProject.projectText], { type: 'application/json' })
     const link = document.createElement('a')
-    link.download = suggestedName
+    link.download = builtProject.suggestedName
     link.href = URL.createObjectURL(projectBlob)
     link.click()
     URL.revokeObjectURL(link.href)
+    lastSavedProjectTextRef.current = builtProject.projectText
+    setSaveStatus('saved')
+    setSnackbar({
+      message: 'Проект сохранен',
+      status: 'saved'
+    })
     saveRecentProject({
-      name: suggestedName,
-      project
+      name: builtProject.suggestedName,
+      project: builtProject.project
     })
   }
+
+  useEffect(() => {
+    if (!currentProjectHandle) {
+      skipNextAutosaveRef.current = true
+      return
+    }
+
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false
+      return
+    }
+
+    const runId = autosaveRunIdRef.current + 1
+    autosaveRunIdRef.current = runId
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const builtProject = await buildProject()
+
+        if (lastSavedProjectTextRef.current === builtProject.projectText) {
+          return
+        }
+
+        if (autosaveRunIdRef.current !== runId) {
+          return
+        }
+
+        await persistProject({
+          handle: currentProjectHandle,
+          suggestedName: builtProject.suggestedName,
+          project: builtProject.project,
+          projectText: builtProject.projectText
+        })
+      } catch {
+        setSaveStatus('error')
+        // Ignore autosave failures and keep manual save available.
+      }
+    }, 1200)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [buildProject, currentProjectHandle, persistProject])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -301,12 +427,55 @@ export function HeaderWidget({
 
     loadColorProjectState(project.colors)
     loadToolProjectState(project.tools)
+    lastSavedProjectTextRef.current = JSON.stringify(project, null, 2)
+    skipNextAutosaveRef.current = true
+    setSaveStatus('idle')
+    setSnackbar(null)
     onProjectFileChange(fileHandle, file.name)
     saveRecentProject({
       name: file.name,
       project
     })
   }
+
+  useEffect(() => {
+    if (saveStatus === 'saving') {
+      setSnackbar({
+        message: 'Сохранение...',
+        status: 'saving'
+      })
+      return
+    }
+
+    if (saveStatus === 'error') {
+      setSnackbar({
+        message: 'Ошибка сохранения',
+        status: 'error'
+      })
+      return
+    }
+  }, [saveStatus])
+
+  useEffect(() => {
+    if (!snackbar || snackbar.status === 'saving') return
+
+    const timeoutId = window.setTimeout(() => {
+      setSnackbar((currentSnackbar) => (
+        currentSnackbar?.status === 'saving' ? currentSnackbar : null
+      ))
+    }, 2200)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [snackbar])
+
+  const snackbarClassName =
+    snackbar?.status === 'error'
+      ? 'border-red-200 bg-red-50 text-red-700'
+      : snackbar?.status === 'saving'
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
 
   const handleOpenProject = async () => {
     const filePicker = (window as Window & {
@@ -365,7 +534,7 @@ export function HeaderWidget({
           <Palette className="w-8 h-8" />
           Pixel Art Paint
         </motion.h1>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
           <input
             ref={openProjectInputRef}
             type="file"
@@ -410,6 +579,16 @@ export function HeaderWidget({
           </Button>
         </div>
       </motion.header>
+      {snackbar ? (
+        <motion.div
+          className={`pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border px-4 py-3 text-sm font-medium shadow-lg backdrop-blur ${snackbarClassName}`}
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          {snackbar.message}
+        </motion.div>
+      ) : null}
       {isSettingsOpen ? <SettingsWidget onClose={() => setIsSettingsOpen(false)} /> : null}
     </>
   )

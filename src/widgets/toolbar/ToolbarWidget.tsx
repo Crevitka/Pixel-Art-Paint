@@ -5,11 +5,10 @@ import {
   Eraser,
   Eye,
   EyeOff,
-  Grid3X3,
   Grip,
   GripVertical,
+  Image,
   Layers,
-  Lock,
   PaintBucket,
   Palette,
   Pencil,
@@ -18,7 +17,7 @@ import {
   Settings,
   Square,
   Trash2,
-  Unlock
+  X
 } from 'lucide-react'
 import {
   useEffect,
@@ -32,12 +31,22 @@ import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
 import { ToolButton, useToolContext } from '@/features/tools'
 
-export type ToolbarBlockId = 'tools' | 'canvas' | 'palette' | 'brush' | 'layers'
+export type ToolbarBlockId = 'tools' | 'reference' | 'palette' | 'brush' | 'layers'
 export type ToolbarPanelId = 'left' | 'center' | 'right'
 
 type DragOverTarget = {
   panelId: ToolbarPanelId
   blockId: ToolbarBlockId | null
+} | null
+
+type LayerDropTarget = {
+  layerId: string
+  position: 'before' | 'after'
+} | null
+
+type PaletteDropTarget = {
+  index: number
+  position: 'before' | 'after'
 } | null
 
 type ToolbarWidgetProps = {
@@ -62,9 +71,9 @@ const tools = [
 ]
 
 const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
-  left: ['tools', 'canvas', 'palette', 'brush', 'layers'],
+  left: ['tools', 'reference', 'palette', 'brush', 'layers'],
   center: ['tools'],
-  right: ['tools', 'canvas', 'palette', 'brush', 'layers']
+  right: ['tools', 'reference', 'palette', 'brush', 'layers']
 }
 
 export function ToolbarWidget({
@@ -89,44 +98,47 @@ export function ToolbarWidget({
     applyPalettePreset,
     createPalettePreset,
     addPaletteColor,
-    updatePaletteColor
+    updatePaletteColor,
+    reorderPaletteColor
   } = useColorContext()
   const {
-    canvasSize,
-    setCanvasSize,
     layers,
     activeLayerId,
     setActiveLayerId,
     addLayer,
+    reorderLayer,
     removeLayer,
     toggleLayerVisibility,
-    renameLayer
+    renameLayer,
+    referenceImageUrl,
+    setReferenceImageUrl,
+    referenceOpacity,
+    setReferenceOpacity,
+    referenceScale,
+    setReferenceScale,
+    isReferenceVisible,
+    setIsReferenceVisible
   } = useCanvasContext()
 
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   const [editingLayerName, setEditingLayerName] = useState('')
   const [editingPaletteColorIndex, setEditingPaletteColorIndex] = useState<number | null>(null)
-  const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true)
-  const [widthInput, setWidthInput] = useState(String(canvasSize.width))
-  const [heightInput, setHeightInput] = useState(String(canvasSize.height))
+  const [draggingPaletteColorIndex, setDraggingPaletteColorIndex] = useState<number | null>(null)
+  const [paletteDropTarget, setPaletteDropTarget] = useState<PaletteDropTarget>(null)
+  const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
+  const [layerDropTarget, setLayerDropTarget] = useState<LayerDropTarget>(null)
   const editingInputRef = useRef<HTMLInputElement>(null)
   const paletteColorInputRef = useRef<HTMLInputElement>(null)
   const paletteEditColorInputRef = useRef<HTMLInputElement>(null)
+  const referenceInputRef = useRef<HTMLInputElement>(null)
   const paletteColorDraftRef = useRef<string | null>(null)
   const isPaletteColorPickerOpenRef = useRef(false)
   const paletteEditColorDraftRef = useRef<string | null>(null)
   const isPaletteEditColorPickerOpenRef = useRef(false)
-  const aspectRatioRef = useRef(canvasSize.width / canvasSize.height)
 
-  const maxCanvasSize = 512
   const isCenterPanel = panelId === 'center'
 
   const canPanelAcceptBlock = (blockId: ToolbarBlockId) => PANEL_ACCEPTED_BLOCKS[panelId].includes(blockId)
-
-  useEffect(() => {
-    setWidthInput(String(canvasSize.width))
-    setHeightInput(String(canvasSize.height))
-  }, [canvasSize.height, canvasSize.width])
 
   useEffect(() => {
     if (!editingLayerId) return
@@ -199,48 +211,78 @@ export function ToolbarWidget({
     updatePaletteColor(index, color)
   }
 
-  const clampCanvasSize = (value: number) => Math.min(maxCanvasSize, Math.max(8, value || 8))
-
-  const toggleAspectRatioLock = () => {
-    if (!isAspectRatioLocked) {
-      aspectRatioRef.current = canvasSize.width / canvasSize.height
-    }
-
-    setIsAspectRatioLocked((current) => !current)
+  const handlePaletteColorDragStart = (event: DragEvent<HTMLDivElement>, index: number) => {
+    event.stopPropagation()
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+    setDraggingPaletteColorIndex(index)
+    setPaletteDropTarget(null)
   }
 
-  const handleWidthChange = (nextWidthValue: number) => {
-    const nextWidth = clampCanvasSize(nextWidthValue)
+  const handlePaletteColorDragOver = (event: DragEvent<HTMLDivElement>, index: number) => {
+    if (draggingPaletteColorIndex === null || draggingPaletteColorIndex === index) return
 
-    if (!isAspectRatioLocked) {
-      setCanvasSize({
-        ...canvasSize,
-        width: nextWidth
-      })
-      return
-    }
+    event.preventDefault()
+    event.stopPropagation()
 
-    setCanvasSize({
-      width: nextWidth,
-      height: clampCanvasSize(Math.round(nextWidth / aspectRatioRef.current))
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const position = event.clientX - bounds.left < bounds.width / 2 ? 'before' : 'after'
+
+    setPaletteDropTarget((currentTarget) => {
+      if (currentTarget?.index === index && currentTarget.position === position) {
+        return currentTarget
+      }
+
+      return { index, position }
     })
   }
 
-  const handleHeightChange = (nextHeightValue: number) => {
-    const nextHeight = clampCanvasSize(nextHeightValue)
+  const handlePaletteColorDrop = (event: DragEvent<HTMLDivElement>, index: number) => {
+    if (draggingPaletteColorIndex === null || draggingPaletteColorIndex === index) return
 
-    if (!isAspectRatioLocked) {
-      setCanvasSize({
-        ...canvasSize,
-        height: nextHeight
-      })
-      return
+    event.preventDefault()
+    event.stopPropagation()
+
+    const position = paletteDropTarget?.index === index ? paletteDropTarget.position : 'before'
+    const targetIndex = position === 'after' ? index + 1 : index
+    const adjustedTargetIndex =
+      draggingPaletteColorIndex < targetIndex ? targetIndex - 1 : targetIndex
+
+    const boundedTargetIndex = Math.max(0, Math.min(paletteColors.length - 1, adjustedTargetIndex))
+
+    reorderPaletteColor(draggingPaletteColorIndex, boundedTargetIndex)
+    setDraggingPaletteColorIndex(null)
+    setPaletteDropTarget(null)
+  }
+
+  const handlePaletteColorDragEnd = () => {
+    setDraggingPaletteColorIndex(null)
+    setPaletteDropTarget(null)
+  }
+
+  const handleOpenReferencePicker = () => {
+    referenceInputRef.current?.click()
+  }
+
+  const handleReferenceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (referenceImageUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(referenceImageUrl)
     }
 
-    setCanvasSize({
-      width: clampCanvasSize(Math.round(nextHeight * aspectRatioRef.current)),
-      height: nextHeight
-    })
+    setReferenceImageUrl(URL.createObjectURL(file))
+    setIsReferenceVisible(true)
+    event.target.value = ''
+  }
+
+  const handleRemoveReference = () => {
+    if (referenceImageUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(referenceImageUrl)
+    }
+
+    setReferenceImageUrl(null)
   }
 
   const startLayerRename = (layerId: string, layerName: string) => {
@@ -269,6 +311,49 @@ export function ToolbarWidget({
     if (event.key === 'Escape') {
       cancelLayerRename()
     }
+  }
+
+  const handleLayerDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+    event.stopPropagation()
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', layerId)
+    setDraggingLayerId(layerId)
+    setLayerDropTarget(null)
+  }
+
+  const handleLayerDragOver = (event: DragEvent<HTMLDivElement>, layerId: string) => {
+    if (!draggingLayerId || draggingLayerId === layerId) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const position = event.clientY - bounds.top < bounds.height / 2 ? 'before' : 'after'
+
+    setLayerDropTarget((currentTarget) => {
+      if (currentTarget?.layerId === layerId && currentTarget.position === position) {
+        return currentTarget
+      }
+
+      return { layerId, position }
+    })
+  }
+
+  const handleLayerDrop = (event: DragEvent<HTMLDivElement>, layerId: string) => {
+    if (!draggingLayerId || draggingLayerId === layerId) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const position = layerDropTarget?.layerId === layerId ? layerDropTarget.position : 'before'
+    reorderLayer(draggingLayerId, layerId, position)
+    setDraggingLayerId(null)
+    setLayerDropTarget(null)
+  }
+
+  const handleLayerDragEnd = () => {
+    setDraggingLayerId(null)
+    setLayerDropTarget(null)
   }
 
   const renderHeader = (
@@ -350,16 +435,16 @@ export function ToolbarWidget({
           key={blockId}
           {...wrapperProps}
           draggable={isCenterPanel}
-          onDragStart={
+          onDragStartCapture={
             isCenterPanel
-              ? (event) => {
+              ? (event: DragEvent<HTMLDivElement>) => {
                   event.dataTransfer.effectAllowed = 'move'
                   event.dataTransfer.setData('text/plain', blockId)
                   onBlockDragStart(blockId, panelId)
                 }
               : undefined
           }
-          onDragEnd={isCenterPanel ? onBlockDragEnd : undefined}
+          onDragEndCapture={isCenterPanel ? onBlockDragEnd : undefined}
           title={isCenterPanel ? 'Перетащите панель инструментов' : undefined}
           transition={{ delay: 0.15 }}
         >
@@ -399,6 +484,88 @@ export function ToolbarWidget({
       )
     }
 
+    if (blockId === 'reference') {
+      return (
+        <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.18 }}>
+          {renderHeader(blockId, <Image className="h-5 w-5" />, 'Референс')}
+          <div className="space-y-4">
+            <input
+              ref={referenceInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleReferenceFileChange}
+              className="hidden"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleOpenReferencePicker}
+                className="flex-1 min-w-[180px] rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
+              >
+                {referenceImageUrl ? 'Заменить' : 'Добавить'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsReferenceVisible(!isReferenceVisible)}
+                disabled={!referenceImageUrl}
+                className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+                title={isReferenceVisible ? 'Скрыть референс' : 'Показать референс'}
+                aria-label={isReferenceVisible ? 'Скрыть референс' : 'Показать референс'}
+              >
+                {isReferenceVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={handleRemoveReference}
+                disabled={!referenceImageUrl}
+                className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-red-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Удалить референс"
+                aria-label="Удалить референс"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-gray-700">Прозрачность</span>
+                <span className="min-w-[52px] text-right font-semibold text-gray-700">
+                  {Math.round(referenceOpacity * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.05"
+                max="1"
+                step="0.05"
+                value={referenceOpacity}
+                onChange={(event) => setReferenceOpacity(Number(event.target.value))}
+                disabled={!referenceImageUrl}
+                className="slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-gray-700">Масштаб</span>
+                <span className="min-w-[52px] text-right font-semibold text-gray-700">
+                  {Math.round(referenceScale * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="4"
+                step="0.05"
+                value={referenceScale}
+                onChange={(event) => setReferenceScale(Number(event.target.value))}
+                disabled={!referenceImageUrl}
+                className="slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+              />
+            </div>
+          </div>
+        </motion.div>
+      )
+    }
+
     if (blockId === 'palette') {
       return (
         <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.2 }}>
@@ -420,43 +587,39 @@ export function ToolbarWidget({
                 type="button"
                 onClick={createPalettePreset}
                 className="flex h-11 shrink-0 items-center justify-center rounded-xl border-2 border-gray-200 bg-gray-50 px-3 text-gray-600 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-                title="Create palette from current colors"
-                aria-label="Create palette from current colors"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="hidden items-center gap-2">
-              <input
-                type="color"
-                value={pickerColor}
-                onChange={(event) => setPickerColor(event.target.value)}
-                className="h-10 flex-1 cursor-pointer rounded-lg border-2 border-gray-200 transition-colors hover:border-primary-500"
-              />
-              <button
-                type="button"
-                onClick={handleAddPaletteColor}
-                className="hidden rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-                title="Добавить цвет в палитру"
-                aria-label="Добавить цвет в палитру"
+                title="Создать палитру из текущих цветов"
+                aria-label="Создать палитру из текущих цветов"
               >
                 <Plus className="h-4 w-4" />
               </button>
             </div>
             <div className="grid grid-cols-5 gap-2">
               {paletteColors.map((color, index) => (
-                <motion.div
+                <div
                   key={`${color}-${index}`}
-                  className={`color-swatch ${selectedColor === color ? 'selected' : ''}`}
+                  draggable
+                  onDragStart={(event) => handlePaletteColorDragStart(event, index)}
+                  onDragOver={(event) => handlePaletteColorDragOver(event, index)}
+                  onDrop={(event) => handlePaletteColorDrop(event, index)}
+                  onDragEnd={handlePaletteColorDragEnd}
+                  className={`color-swatch relative ${selectedColor === color ? 'selected' : ''} ${
+                    draggingPaletteColorIndex === index ? 'opacity-60' : ''
+                  }`}
                   style={{ backgroundColor: color }}
                   onClick={() => {
                     setSelectedColor(color)
                     setPickerColor(color)
                   }}
                   onDoubleClick={() => handleEditPaletteColor(index, color)}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                />
+                >
+                  {paletteDropTarget?.index === index ? (
+                    <div
+                      className={`pointer-events-none absolute top-1 bottom-1 w-0.5 rounded-full bg-primary-500 ${
+                        paletteDropTarget.position === 'before' ? 'left-0' : 'right-0'
+                      }`}
+                    />
+                  ) : null}
+                </div>
               ))}
               <input
                 ref={paletteEditColorInputRef}
@@ -484,69 +647,11 @@ export function ToolbarWidget({
                 type="button"
                 onClick={handleAddPaletteColor}
                 className="flex aspect-square w-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 text-gray-500 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-                title="Add color to palette"
-                aria-label="Add color to palette"
+                title="Добавить цвет в палитру"
+                aria-label="Добавить цвет в палитру"
               >
                 <Plus className="h-4 w-4" />
               </button>
-            </div>
-          </div>
-        </motion.div>
-      )
-    }
-
-    if (blockId === 'canvas') {
-      return (
-        <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.18 }}>
-          {renderHeader(blockId, <Grid3X3 className="h-5 w-5" />, 'Холст')}
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-gray-700">Размер холста</span>
-                <button
-                  type="button"
-                  onClick={toggleAspectRatioLock}
-                  className={`rounded-lg border-2 p-2 transition-colors ${
-                    isAspectRatioLocked
-                      ? 'border-primary-500 bg-primary-50 text-primary-700'
-                      : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
-                  }`}
-                  aria-pressed={isAspectRatioLocked}
-                  aria-label={
-                    isAspectRatioLocked
-                      ? 'Отключить сохранение пропорций'
-                      : 'Включить сохранение пропорций'
-                  }
-                  title={
-                    isAspectRatioLocked
-                      ? 'Сохранение пропорций включено'
-                      : 'Сохранение пропорций выключено'
-                  }
-                >
-                  {isAspectRatioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={widthInput}
-                  onChange={(event) => setWidthInput(event.target.value)}
-                  onBlur={() => handleWidthChange(Number(widthInput))}
-                  min="8"
-                  max={maxCanvasSize}
-                  className="w-20 rounded-lg border-2 border-gray-200 px-3 py-2 text-center text-sm focus:border-primary-500 focus:outline-none"
-                />
-                <span className="text-gray-500">×</span>
-                <input
-                  type="number"
-                  value={heightInput}
-                  onChange={(event) => setHeightInput(event.target.value)}
-                  onBlur={() => handleHeightChange(Number(heightInput))}
-                  min="8"
-                  max={maxCanvasSize}
-                  className="w-20 rounded-lg border-2 border-gray-200 px-3 py-2 text-center text-sm focus:border-primary-500 focus:outline-none"
-                />
-              </div>
             </div>
           </div>
         </motion.div>
@@ -592,10 +697,30 @@ export function ToolbarWidget({
           {layers.map((layer) => (
             <div
               key={layer.id}
-              className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition-colors ${
+              onDragOver={(event) => handleLayerDragOver(event, layer.id)}
+              onDrop={(event) => handleLayerDrop(event, layer.id)}
+              className={`relative flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition-colors ${
                 activeLayerId === layer.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'
-              }`}
+              } ${draggingLayerId === layer.id ? 'opacity-60' : ''}`}
             >
+              {layerDropTarget?.layerId === layer.id ? (
+                <div
+                  className={`pointer-events-none absolute left-2 right-2 h-0.5 rounded-full bg-primary-500 ${
+                    layerDropTarget.position === 'before' ? 'top-0' : 'bottom-0'
+                  }`}
+                />
+              ) : null}
+              <button
+                type="button"
+                draggable
+                onDragStart={(event) => handleLayerDragStart(event, layer.id)}
+                onDragEnd={handleLayerDragEnd}
+                className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                title="Перетащить слой"
+                aria-label="Перетащить слой"
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
               {editingLayerId === layer.id ? (
                 <input
                   ref={editingInputRef}

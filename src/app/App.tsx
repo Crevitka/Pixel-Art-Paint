@@ -36,15 +36,15 @@ type OpenFilePicker = (options?: {
 }) => Promise<FileSystemFileHandle[]>
 
 const INITIAL_PANEL_BLOCKS: PanelBlocks = {
-  left: ['tools', 'canvas', 'palette', 'brush', 'layers'],
+  left: ['tools', 'reference', 'palette', 'brush', 'layers'],
   center: [],
   right: []
 }
 
 const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
-  left: ['tools', 'canvas', 'palette', 'brush', 'layers'],
+  left: ['tools', 'reference', 'palette', 'brush', 'layers'],
   center: ['tools'],
-  right: ['tools', 'canvas', 'palette', 'brush', 'layers']
+  right: ['tools', 'reference', 'palette', 'brush', 'layers']
 }
 
 function createProjectFromTemplate(template: StartTemplate): PixelArtProject {
