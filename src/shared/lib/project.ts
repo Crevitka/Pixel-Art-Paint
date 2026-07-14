@@ -64,7 +64,25 @@ const RECENT_PROJECTS_STORAGE_KEY = 'pixel-art-paint.recent-projects'
 const RECENT_PROJECTS_EVENT = 'pixel-art-paint:recent-projects-updated'
 const PROJECT_TEMPLATES_STORAGE_KEY = 'pixel-art-paint.project-templates'
 const PROJECT_TEMPLATES_EVENT = 'pixel-art-paint:project-templates-updated'
+const SESSION_PROJECT_STORAGE_KEY = 'pixel-art-paint.session-project'
+const SESSION_DB_NAME = 'pixel-art-paint-session'
+const SESSION_DB_VERSION = 1
+const SESSION_HANDLES_STORE = 'handles'
+const SESSION_PROJECT_HANDLE_KEY = 'current-project-handle'
 const MAX_RECENT_PROJECTS = 8
+
+export type SessionProjectState = {
+  projectName: string | null
+  pathname: '/' | '/editor'
+  hasFileHandle: boolean
+  draftProject: PixelArtProject | null
+  panelBlocks?: {
+    left: string[]
+    center: string[]
+    right: string[]
+  }
+  updatedAt: string
+}
 
 export const DEFAULT_PALETTE_PRESETS: PalettePreset[] = [
   {
@@ -277,4 +295,88 @@ export function saveRecentProject(entry: {
 
   window.localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(nextProjects))
   emitRecentProjectsUpdated()
+}
+
+export function getSessionProject() {
+  if (typeof window === 'undefined') return null as SessionProjectState | null
+
+  try {
+    const rawValue = window.localStorage.getItem(SESSION_PROJECT_STORAGE_KEY)
+    if (!rawValue) return null
+
+    const parsed = JSON.parse(rawValue) as SessionProjectState
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function saveSessionProject(state: SessionProjectState) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(SESSION_PROJECT_STORAGE_KEY, JSON.stringify(state))
+}
+
+export function clearSessionProject() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(SESSION_PROJECT_STORAGE_KEY)
+}
+
+function openSessionDb() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(SESSION_DB_NAME, SESSION_DB_VERSION)
+
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(SESSION_HANDLES_STORE)) {
+        db.createObjectStore(SESSION_HANDLES_STORE)
+      }
+    }
+
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export async function saveSessionProjectHandle(handle: FileSystemFileHandle) {
+  if (typeof window === 'undefined') return
+
+  const db = await openSessionDb()
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(SESSION_HANDLES_STORE, 'readwrite')
+    const store = transaction.objectStore(SESSION_HANDLES_STORE)
+    store.put(handle, SESSION_PROJECT_HANDLE_KEY)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+  })
+  db.close()
+}
+
+export async function getSessionProjectHandle() {
+  if (typeof window === 'undefined') return null as FileSystemFileHandle | null
+
+  const db = await openSessionDb()
+  const handle = await new Promise<FileSystemFileHandle | null>((resolve, reject) => {
+    const transaction = db.transaction(SESSION_HANDLES_STORE, 'readonly')
+    const store = transaction.objectStore(SESSION_HANDLES_STORE)
+    const request = store.get(SESSION_PROJECT_HANDLE_KEY)
+    request.onsuccess = () => resolve((request.result as FileSystemFileHandle | undefined) ?? null)
+    request.onerror = () => reject(request.error)
+  })
+  db.close()
+  return handle
+}
+
+export async function clearSessionProjectHandle() {
+  if (typeof window === 'undefined') return
+
+  const db = await openSessionDb()
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(SESSION_HANDLES_STORE, 'readwrite')
+    const store = transaction.objectStore(SESSION_HANDLES_STORE)
+    store.delete(SESSION_PROJECT_HANDLE_KEY)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+  })
+  db.close()
 }

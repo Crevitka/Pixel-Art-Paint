@@ -38,6 +38,8 @@ interface CanvasContextType {
   toggleLayerVisibility: (layerId: string) => void
   renameLayer: (layerId: string, name: string) => void
   translateLayer: (layerId: string, dx: number, dy: number) => void
+  flipLayerHorizontal: (layerId: string) => void
+  flipLayerVertical: (layerId: string) => void
   isDrawing: boolean
   setIsDrawing: (drawing: boolean) => void
   mousePosition: MousePosition

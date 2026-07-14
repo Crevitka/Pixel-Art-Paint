@@ -6,7 +6,6 @@ import { useColorContext } from '@/features/colors'
 import { useCanvasContext } from '@/features/canvas'
 import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
 import { useToolContext } from '@/features/tools'
-import eyedropperCursorUrl from '@/shared/ui/eyedropperCursor.svg'
 import type { CanvasSize, Layer, Tool } from '@/shared/types'
 
 type LayerBounds = {
@@ -39,12 +38,83 @@ const ROTATE_HANDLE_OFFSET = 24
 const ROTATE_CORNER_DISTANCE = 32
 const ROTATE_CORNER_INNER_DISTANCE = 12
 const ROTATE_CORNER_HIT_PADDING = 16
-const EYEDROPPER_CURSOR = `url("${eyedropperCursorUrl}") 3 20, copy`
 const SPACE_ACTIVATION_KEYS = (keys: string[]) => (
   keys.includes(' ') || keys.includes('Space') || keys.includes('Spacebar')
 )
 
 const rotateCursorCache = new Map<number, string>()
+type CursorIconNode = Array<
+  | { tag: 'path'; attrs: { d: string } }
+  | { tag: 'rect'; attrs: { width: string; height: string; x: string; y: string; rx?: string } }
+  | { tag: 'circle'; attrs: { cx: string; cy: string; r: string } }
+>
+
+const PENCIL_CURSOR_ICON: CursorIconNode = [
+  { tag: 'path', attrs: { d: 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z' } },
+  { tag: 'path', attrs: { d: 'm15 5 4 4' } }
+]
+
+const ERASER_CURSOR_ICON: CursorIconNode = [
+  { tag: 'path', attrs: { d: 'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21' } },
+  { tag: 'path', attrs: { d: 'M22 21H7' } },
+  { tag: 'path', attrs: { d: 'm5 11 9 9' } }
+]
+
+const FILL_CURSOR_ICON: CursorIconNode = [
+  { tag: 'path', attrs: { d: 'm19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z' } },
+  { tag: 'path', attrs: { d: 'm5 2 5 5' } },
+  { tag: 'path', attrs: { d: 'M2 13h15' } },
+  { tag: 'path', attrs: { d: 'M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z' } }
+]
+
+const SELECTION_CURSOR_ICON: CursorIconNode = [
+  { tag: 'path', attrs: { d: 'M6 2v14a2 2 0 0 0 2 2h14' } },
+  { tag: 'path', attrs: { d: 'M18 22V8a2 2 0 0 0-2-2H2' } }
+]
+
+const RECTANGLE_CURSOR_ICON: CursorIconNode = [
+  { tag: 'rect', attrs: { width: '18', height: '18', x: '3', y: '3', rx: '2' } }
+]
+
+const ELLIPSE_CURSOR_ICON: CursorIconNode = [
+  { tag: 'circle', attrs: { cx: '12', cy: '12', r: '10' } }
+]
+
+const EYEDROPPER_CURSOR_ICON: CursorIconNode = [
+  { tag: 'path', attrs: { d: 'm2 22 1-1h3l9-9' } },
+  { tag: 'path', attrs: { d: 'M3 21v-3l9-9' } },
+  { tag: 'path', attrs: { d: 'm15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z' } }
+]
+
+function createToolCursor(iconNode: CursorIconNode, hotspotX: number, hotspotY: number, fallback = 'crosshair') {
+  const shapes = iconNode
+    .map(({ tag, attrs }) => {
+      const attributes = Object.entries(attrs)
+        .map(([key, value]) => `${key}="${value}"`)
+        .join(' ')
+
+      return `<${tag} ${attributes} />`
+    })
+    .join('')
+
+  const svg = `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${shapes}
+      </g>
+    </svg>
+  `.trim()
+
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspotX} ${hotspotY}, ${fallback}`
+}
+
+const PENCIL_CURSOR = createToolCursor(PENCIL_CURSOR_ICON, 3, 21)
+const ERASER_CURSOR = createToolCursor(ERASER_CURSOR_ICON, 8, 20, 'cell')
+const FILL_CURSOR = createToolCursor(FILL_CURSOR_ICON, 6, 18, 'pointer')
+const SELECTION_CURSOR = createToolCursor(SELECTION_CURSOR_ICON, 8, 8, 'crosshair')
+const RECTANGLE_CURSOR = createToolCursor(RECTANGLE_CURSOR_ICON, 8, 8, 'crosshair')
+const ELLIPSE_CURSOR = createToolCursor(ELLIPSE_CURSOR_ICON, 8, 8, 'crosshair')
+const EYEDROPPER_CURSOR = createToolCursor(EYEDROPPER_CURSOR_ICON, 3, 20, 'copy')
 
 function getRotateCursor(angleDegrees = 0) {
   const normalizedAngle = ((Math.round(angleDegrees * 10) / 10) % 360 + 360) % 360
@@ -195,6 +265,25 @@ function getCursorForHandle(handle: TransformHandle, rotateAngle = 0) {
 
 function getRotateCursorForCorner(angleDegrees = 0, corner: RotateCorner | null = null) {
   return getRotateCursor(angleDegrees + getRotateCornerCursorOffset(corner))
+}
+
+function getCursorForTool(tool: Tool) {
+  switch (tool) {
+    case 'pencil':
+      return PENCIL_CURSOR
+    case 'eraser':
+      return ERASER_CURSOR
+    case 'fill':
+      return FILL_CURSOR
+    case 'selection':
+      return SELECTION_CURSOR
+    case 'rectangle':
+      return RECTANGLE_CURSOR
+    case 'ellipse':
+      return ELLIPSE_CURSOR
+    case 'eyedropper':
+      return EYEDROPPER_CURSOR
+  }
 }
 
 function getTransformUiScale(zoom = 1) {
@@ -908,6 +997,8 @@ export function CanvasWidget() {
     undo,
     addLayerWithPixels,
     translateLayer,
+    flipLayerHorizontal,
+    flipLayerVertical,
     canvasRef
   } = useCanvasContext()
 
@@ -1256,6 +1347,22 @@ export function CanvasWidget() {
         return
       }
 
+      if (eventMatchesHotkey(event, hotkeys.flipLayerHorizontal) && !isEditableElement(event.target)) {
+        event.preventDefault()
+        if (activeLayerId) {
+          flipLayerHorizontal(activeLayerId)
+        }
+        return
+      }
+
+      if (eventMatchesHotkey(event, hotkeys.flipLayerVertical) && !isEditableElement(event.target)) {
+        event.preventDefault()
+        if (activeLayerId) {
+          flipLayerVertical(activeLayerId)
+        }
+        return
+      }
+
       if (eventMatchesHotkey(event, hotkeys.cancel)) {
         clearPendingPastedImage()
         setSelectionBounds(null)
@@ -1314,10 +1421,15 @@ export function CanvasWidget() {
     clearPendingPastedImage,
     copySelection,
     cutSelection,
+    flipLayerHorizontal,
+    flipLayerVertical,
+    hotkeys.flipLayerHorizontal,
+    hotkeys.flipLayerVertical,
     hotkeys.cancel,
     hotkeys.copySelection,
     hotkeys.cutSelection,
     hotkeys.undo,
+    activeLayerId,
     undo
   ])
 
@@ -2395,8 +2507,6 @@ export function CanvasWidget() {
   const cursorValue =
     effectiveHoverTool === 'eyedropper'
       ? EYEDROPPER_CURSOR
-      : selectedTool === 'selection'
-      ? 'crosshair'
       : isPanning
         ? 'grabbing'
         : isSpacePressed
@@ -2413,7 +2523,7 @@ export function CanvasWidget() {
                     : getCursorForHandle(hoveredHandle, rotatePreviewAngle)
                   : isMoveModifierPressed && activeLayerBounds
                     ? 'grab'
-                    : 'crosshair'
+                    : getCursorForTool(effectiveHoverTool)
 
   return (
     <motion.div

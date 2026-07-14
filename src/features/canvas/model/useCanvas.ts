@@ -49,6 +49,55 @@ function cloneLayers(layers: Layer[]) {
   }))
 }
 
+function getLayerBounds(pixels: Map<string, string>) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+
+  pixels.forEach((_, key) => {
+    const [x, y] = key.split(',').map(Number)
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+  })
+
+  if (!Number.isFinite(minX)) return null
+
+  return { minX, minY, maxX, maxY }
+}
+
+function flipPixelsHorizontally(pixels: Map<string, string>) {
+  const bounds = getLayerBounds(pixels)
+  if (!bounds) return pixels
+
+  const nextPixels = new Map<string, string>()
+
+  pixels.forEach((color, key) => {
+    const [x, y] = key.split(',').map(Number)
+    const flippedX = bounds.maxX - (x - bounds.minX)
+    nextPixels.set(`${flippedX},${y}`, color)
+  })
+
+  return nextPixels
+}
+
+function flipPixelsVertically(pixels: Map<string, string>) {
+  const bounds = getLayerBounds(pixels)
+  if (!bounds) return pixels
+
+  const nextPixels = new Map<string, string>()
+
+  pixels.forEach((color, key) => {
+    const [x, y] = key.split(',').map(Number)
+    const flippedY = bounds.maxY - (y - bounds.minY)
+    nextPixels.set(`${x},${flippedY}`, color)
+  })
+
+  return nextPixels
+}
+
 export function useCanvas() {
   const nextLayerNumberRef = useRef(2)
   const historyRef = useRef<CanvasHistoryEntry[]>([])
@@ -266,6 +315,34 @@ export function useCanvas() {
     )
   }, [canvasSize.height, canvasSize.width])
 
+  const flipLayerHorizontal = useCallback((layerId: string) => {
+    pushHistory()
+    setLayers((currentLayers) =>
+      currentLayers.map((layer) =>
+        layer.id === layerId
+          ? {
+              ...layer,
+              pixels: flipPixelsHorizontally(layer.pixels)
+            }
+          : layer
+      )
+    )
+  }, [pushHistory])
+
+  const flipLayerVertical = useCallback((layerId: string) => {
+    pushHistory()
+    setLayers((currentLayers) =>
+      currentLayers.map((layer) =>
+        layer.id === layerId
+          ? {
+              ...layer,
+              pixels: flipPixelsVertically(layer.pixels)
+            }
+          : layer
+      )
+    )
+  }, [pushHistory])
+
   const loadCanvasProjectState = useCallback((state: {
     canvasSize: CanvasSize
     layers: Layer[]
@@ -312,6 +389,8 @@ export function useCanvas() {
     toggleLayerVisibility,
     renameLayer,
     translateLayer,
+    flipLayerHorizontal,
+    flipLayerVertical,
     isDrawing,
     setIsDrawing,
     mousePosition,

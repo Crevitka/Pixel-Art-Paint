@@ -5,6 +5,8 @@ export type HotkeyId =
   | 'cutSelection'
   | 'renameLayer'
   | 'cancel'
+  | 'flipLayerHorizontal'
+  | 'flipLayerVertical'
   | 'selectPencil'
   | 'selectEraser'
   | 'selectFill'
@@ -36,6 +38,8 @@ export const DEFAULT_HOTKEYS: Record<HotkeyId, HotkeyBinding> = {
   cutSelection: { code: 'KeyX', key: 'x', ctrlOrMeta: true },
   renameLayer: { code: 'F2', key: 'F2' },
   cancel: { code: 'Escape', key: 'Escape' },
+  flipLayerHorizontal: { code: 'KeyH', key: 'h', shift: true },
+  flipLayerVertical: { code: 'KeyV', key: 'v', shift: true },
   selectPencil: { code: 'KeyB', key: 'b' },
   selectEraser: { code: 'KeyE', key: 'e' },
   selectFill: { code: 'KeyG', key: 'g' },
@@ -52,6 +56,8 @@ export const HOTKEY_DEFINITIONS: HotkeyDefinition[] = [
   { id: 'cutSelection', description: 'Вырезать выделение', binding: DEFAULT_HOTKEYS.cutSelection },
   { id: 'renameLayer', description: 'Переименовать активный слой', binding: DEFAULT_HOTKEYS.renameLayer },
   { id: 'cancel', description: 'Закрыть окно или снять выделение', binding: DEFAULT_HOTKEYS.cancel },
+  { id: 'flipLayerHorizontal', description: 'Отзеркалить слой по горизонтали', binding: DEFAULT_HOTKEYS.flipLayerHorizontal },
+  { id: 'flipLayerVertical', description: 'Отзеркалить слой по вертикали', binding: DEFAULT_HOTKEYS.flipLayerVertical },
   { id: 'selectPencil', description: 'Выбрать карандаш', binding: DEFAULT_HOTKEYS.selectPencil },
   { id: 'selectEraser', description: 'Выбрать ластик', binding: DEFAULT_HOTKEYS.selectEraser },
   { id: 'selectFill', description: 'Выбрать заливку', binding: DEFAULT_HOTKEYS.selectFill },
@@ -97,6 +103,8 @@ export function loadHotkeys(): Record<HotkeyId, HotkeyBinding> {
       cutSelection: normalizeBinding(parsed.cutSelection ?? DEFAULT_HOTKEYS.cutSelection),
       renameLayer: normalizeBinding(parsed.renameLayer ?? DEFAULT_HOTKEYS.renameLayer),
       cancel: normalizeBinding(parsed.cancel ?? DEFAULT_HOTKEYS.cancel),
+      flipLayerHorizontal: normalizeBinding(parsed.flipLayerHorizontal ?? DEFAULT_HOTKEYS.flipLayerHorizontal),
+      flipLayerVertical: normalizeBinding(parsed.flipLayerVertical ?? DEFAULT_HOTKEYS.flipLayerVertical),
       selectPencil: normalizeBinding(parsed.selectPencil ?? DEFAULT_HOTKEYS.selectPencil),
       selectEraser: normalizeBinding(parsed.selectEraser ?? DEFAULT_HOTKEYS.selectEraser),
       selectFill: normalizeBinding(parsed.selectFill ?? DEFAULT_HOTKEYS.selectFill),
