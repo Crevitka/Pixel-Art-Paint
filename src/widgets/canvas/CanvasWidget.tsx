@@ -5,7 +5,7 @@ import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 
 import { useColorContext } from '@/features/colors'
 import { useCanvasContext } from '@/features/canvas'
 import { useToolContext } from '@/features/tools'
-import rotateCursorUrl from '@/shared/ui/rotateCursor.svg'
+import eyedropperCursorUrl from '@/shared/ui/eyedropperCursor.svg'
 import type { CanvasSize, Layer, Tool } from '@/shared/types'
 
 type LayerBounds = {
@@ -30,15 +30,54 @@ type PendingPastedImage = {
 }
 
 type TransformHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se' | 'rotate'
+type RotateCorner = 'nw' | 'ne' | 'sw' | 'se'
 
-const HANDLE_SIZE = 10
+const HANDLE_SIZE = 12
+const HANDLE_HIT_SIZE = 24
 const ROTATE_HANDLE_OFFSET = 24
 const ROTATE_CORNER_DISTANCE = 32
 const ROTATE_CORNER_INNER_DISTANCE = 12
-const ROTATE_CURSOR = `url("${rotateCursorUrl}") 7 7, crosshair`
+const ROTATE_CORNER_HIT_PADDING = 16
+const EYEDROPPER_CURSOR = `url("${eyedropperCursorUrl}") 3 20, copy`
 const SPACE_ACTIVATION_KEYS = (keys: string[]) => (
   keys.includes(' ') || keys.includes('Space') || keys.includes('Spacebar')
 )
+
+const rotateCursorCache = new Map<number, string>()
+
+function getRotateCursor(angleDegrees = 0) {
+  const normalizedAngle = ((Math.round(angleDegrees * 10) / 10) % 360 + 360) % 360
+  const cachedCursor = rotateCursorCache.get(normalizedAngle)
+  if (cachedCursor) return cachedCursor
+
+  const svg = `
+    <svg width="24" height="24" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <g transform="rotate(${normalizedAngle} 7.5 7.5)">
+        <path d="M12.9586 10.7895C12.9586 9.63753 12.729 8.49686 12.283 7.4326C11.8369 6.36834 11.1831 5.40133 10.3589 4.58678C9.53475 3.77223 8.55629 3.1261 7.47944 2.68527C6.40258 2.24444 5.24842 2.01754 4.08284 2.01754V3.07018C5.10855 3.07018 6.12421 3.26984 7.07185 3.65777C8.01948 4.0457 8.88052 4.6143 9.6058 5.33111C10.3311 6.04791 10.9064 6.89888 11.2989 7.83543C11.6915 8.77197 11.8935 9.77576 11.8935 10.7895H12.9586Z" fill="black"/>
+        <path d="M14.476 12.106C14.6199 12.1109 14.7558 12.171 14.8539 12.2731C14.9521 12.3751 15.0046 12.5102 14.9997 12.6496C14.9948 12.7891 14.933 12.9209 14.8279 13.0162L12.7923 14.8577C12.7089 14.9335 12.603 14.9818 12.4896 14.9958C12.3763 15.0098 12.2612 14.9887 12.1609 14.9356C12.1206 14.9142 12.0832 14.8878 12.0497 14.8572L10.0157 13.0162C9.9142 12.9202 9.85553 12.7894 9.85222 12.6519C9.84891 12.5144 9.90123 12.3812 9.99799 12.2806C10.0947 12.1801 10.2282 12.1202 10.3699 12.1139C10.5116 12.1076 10.6502 12.1553 10.7561 12.2468L11.8787 13.2625V10.7895C11.8787 10.6499 11.9359 10.516 12.0377 10.4173C12.1395 10.3186 12.2775 10.2632 12.4215 10.2632C12.5655 10.2632 12.7035 10.3186 12.8053 10.4173C12.9071 10.516 12.9643 10.6499 12.9643 10.7895V13.2625L14.0869 12.2468C14.1922 12.1517 14.3322 12.101 14.476 12.106Z" fill="black"/>
+        <path d="M2.92828 4.56988C2.92329 4.71203 2.86247 4.84637 2.75918 4.94335C2.65599 5.04042 2.51929 5.09224 2.37819 5.08741C2.23709 5.08258 2.10367 5.0215 2.00725 4.9176L0.143947 2.9058C0.0672958 2.82339 0.0184122 2.71872 0.00426085 2.60669C-0.00989054 2.49466 0.0114117 2.38099 0.0651326 2.28187C0.0868446 2.24197 0.113508 2.20501 0.144479 2.17189L2.00726 0.1617C2.10446 0.0614016 2.23677 0.00341422 2.37587 0.000145976C2.51498 -0.00312194 2.64983 0.0485883 2.75156 0.144212C2.8533 0.239837 2.91385 0.371778 2.92025 0.511805C2.92665 0.651832 2.8784 0.788821 2.78581 0.893459L1.75803 2.0029L4.26037 2.0029C4.40161 2.0029 4.53706 2.05942 4.63693 2.16003C4.73679 2.26064 4.7929 2.3971 4.7929 2.53938C4.7929 2.68167 4.73679 2.81812 4.63693 2.91873C4.53706 3.01934 4.40161 3.07586 4.26037 3.07586H1.75803L2.78581 4.1853C2.88203 4.2894 2.93328 4.42773 2.92828 4.56988Z" fill="black"/>
+      </g>
+    </svg>
+  `.trim()
+
+  const cursor = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 7 7, crosshair`
+  rotateCursorCache.set(normalizedAngle, cursor)
+  return cursor
+}
+
+function getRotateCornerCursorOffset(corner: RotateCorner | null) {
+  switch (corner) {
+    case 'se':
+      return 90
+    case 'sw':
+      return 180
+    case 'nw':
+      return 270
+    case 'ne':
+    default:
+      return 0
+  }
+}
 
 function isStylusEraser(event: React.PointerEvent<HTMLCanvasElement>) {
   return event.pointerType === 'pen' && (event.button === 5 || (event.buttons & 32) !== 0)
@@ -134,7 +173,7 @@ function createBoundsFromPoints(startX: number, startY: number, endX: number, en
   }
 }
 
-function getCursorForHandle(handle: TransformHandle) {
+function getCursorForHandle(handle: TransformHandle, rotateAngle = 0) {
   switch (handle) {
     case 'n':
     case 's':
@@ -149,17 +188,25 @@ function getCursorForHandle(handle: TransformHandle) {
     case 'sw':
       return 'nesw-resize'
     case 'rotate':
-      return ROTATE_CURSOR
+      return getRotateCursor(rotateAngle)
   }
+}
+
+function getRotateCursorForCorner(angleDegrees = 0, corner: RotateCorner | null = null) {
+  return getRotateCursor(angleDegrees + getRotateCornerCursorOffset(corner))
 }
 
 function getTransformUiScale(zoom = 1) {
   return Math.min(3, Math.max(1, 1 / Math.max(zoom, 0.01)))
 }
 
+function getTransformHandleUiScale(zoom = 1) {
+  return Math.min(14, Math.max(1.2, 2.4 / Math.max(zoom, 0.01)))
+}
+
 function getHandleCenters(bounds: LayerBounds, pixelSize: number, zoom = 1) {
-  const uiScale = getTransformUiScale(zoom)
-  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * uiScale
+  const handleUiScale = getTransformHandleUiScale(zoom)
+  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * handleUiScale
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const right = (bounds.maxX + 1) * pixelSize
@@ -187,7 +234,8 @@ function getHandleAtCanvasPoint(
   pixelSize: number,
   zoom = 1
 ): TransformHandle | null {
-  const handleSize = HANDLE_SIZE * getTransformUiScale(zoom)
+  const handleUiScale = getTransformHandleUiScale(zoom)
+  const handleSize = Math.max(HANDLE_SIZE * handleUiScale, HANDLE_HIT_SIZE * handleUiScale)
   const handles = getHandleCenters(bounds, pixelSize, zoom)
 
   for (const handle of handles) {
@@ -210,8 +258,8 @@ function getCornerRotateHandleAtCanvasPoint(
   bounds: LayerBounds,
   pixelSize: number,
   zoom = 1
-): TransformHandle | null {
-  const uiScale = getTransformUiScale(zoom)
+): RotateCorner | null {
+  const handleUiScale = getTransformHandleUiScale(zoom)
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const right = (bounds.maxX + 1) * pixelSize
@@ -229,10 +277,13 @@ function getCornerRotateHandleAtCanvasPoint(
   for (const corner of corners) {
     const distance = Math.hypot(x - corner.x, y - corner.y)
     if (
-      distance <= ROTATE_CORNER_DISTANCE * uiScale &&
-      distance >= ROTATE_CORNER_INNER_DISTANCE * uiScale
+      distance <= (ROTATE_CORNER_DISTANCE + ROTATE_CORNER_HIT_PADDING) * handleUiScale &&
+      distance >= Math.max(0, (ROTATE_CORNER_INNER_DISTANCE - ROTATE_CORNER_HIT_PADDING / 2) * handleUiScale)
     ) {
-      return 'rotate'
+      if (corner.x === left && corner.y === top) return 'nw'
+      if (corner.x === right && corner.y === top) return 'ne'
+      if (corner.x === right && corner.y === bottom) return 'se'
+      return 'sw'
     }
   }
 
@@ -247,8 +298,9 @@ function drawTransformBox(
   zoom = 1
 ) {
   const uiScale = getTransformUiScale(zoom)
-  const handleSize = HANDLE_SIZE * uiScale
-  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * uiScale
+  const handleUiScale = getTransformHandleUiScale(zoom)
+  const handleSize = HANDLE_SIZE * handleUiScale
+  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * handleUiScale
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const width = (bounds.maxX - bounds.minX + 1) * pixelSize
@@ -283,6 +335,51 @@ function drawTransformBox(
     ctx.strokeRect(x - handleSize / 2, y - handleSize / 2, handleSize, handleSize)
   })
 
+  ctx.restore()
+}
+
+function drawRotationAngleBadge(
+  ctx: CanvasRenderingContext2D,
+  bounds: LayerBounds,
+  pixelSize: number,
+  angleDegrees: number,
+  zoom = 1
+) {
+  const uiScale = getTransformUiScale(zoom)
+  const centerX = ((bounds.minX + bounds.maxX + 1) * pixelSize) / 2
+  const top = bounds.minY * pixelSize
+  const label = `${angleDegrees.toFixed(1)}°`
+  const fontSize = Math.max(12, 12 / Math.max(zoom, 0.01))
+  const paddingX = 8 * uiScale
+  const paddingY = 5 * uiScale
+  const offsetY = 20 * uiScale
+
+  ctx.save()
+  ctx.font = `600 ${fontSize}px Inter, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  const metrics = ctx.measureText(label)
+  const labelWidth = metrics.width + paddingX * 2
+  const labelHeight = fontSize + paddingY * 2
+  const preferredY = top - offsetY - labelHeight / 2
+  const labelCenterY = preferredY - labelHeight / 2 < 0
+    ? top + offsetY + labelHeight / 2
+    : preferredY
+  const labelLeft = centerX - labelWidth / 2
+  const labelTop = labelCenterY - labelHeight / 2
+  const radius = 8 * uiScale
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
+  ctx.strokeStyle = 'rgba(96, 165, 250, 0.95)'
+  ctx.lineWidth = Math.max(1.5, 1.5 / Math.max(zoom, 0.01))
+  ctx.beginPath()
+  ctx.roundRect(labelLeft, labelTop, labelWidth, labelHeight, radius)
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.fillStyle = '#eff6ff'
+  ctx.fillText(label, centerX, labelCenterY)
   ctx.restore()
 }
 
@@ -494,25 +591,37 @@ function scalePixelsToBounds(
   const targetWidth = targetBounds.maxX - targetBounds.minX + 1
   const targetHeight = targetBounds.maxY - targetBounds.minY + 1
 
-  for (let y = 0; y < targetHeight; y++) {
-    const sourceOffsetY = targetHeight === 1
-      ? 0
-      : Math.round((y / (targetHeight - 1)) * (sourceHeight - 1))
+  pixels.forEach((color, key) => {
+    const [sourceX, sourceY] = key.split(',').map(Number)
 
-    for (let x = 0; x < targetWidth; x++) {
-      const sourceOffsetX = targetWidth === 1
-        ? 0
-        : Math.round((x / (targetWidth - 1)) * (sourceWidth - 1))
-
-      const sourceX = sourceBounds.minX + sourceOffsetX
-      const sourceY = sourceBounds.minY + sourceOffsetY
-      const color = pixels.get(`${sourceX},${sourceY}`)
-
-      if (!color) continue
-
-      nextPixels.set(`${targetBounds.minX + x},${targetBounds.minY + y}`, color)
+    if (
+      sourceX < sourceBounds.minX ||
+      sourceX > sourceBounds.maxX ||
+      sourceY < sourceBounds.minY ||
+      sourceY > sourceBounds.maxY
+    ) {
+      return
     }
-  }
+
+    const sourceOffsetX = sourceX - sourceBounds.minX
+    const sourceOffsetY = sourceY - sourceBounds.minY
+    const targetStartX = Math.floor((sourceOffsetX / sourceWidth) * targetWidth)
+    const targetEndX = Math.max(
+      targetStartX,
+      Math.ceil(((sourceOffsetX + 1) / sourceWidth) * targetWidth) - 1
+    )
+    const targetStartY = Math.floor((sourceOffsetY / sourceHeight) * targetHeight)
+    const targetEndY = Math.max(
+      targetStartY,
+      Math.ceil(((sourceOffsetY + 1) / sourceHeight) * targetHeight) - 1
+    )
+
+    for (let targetY = targetStartY; targetY <= targetEndY; targetY++) {
+      for (let targetX = targetStartX; targetX <= targetEndX; targetX++) {
+        nextPixels.set(`${targetBounds.minX + targetX},${targetBounds.minY + targetY}`, color)
+      }
+    }
+  })
 
   return nextPixels
 }
@@ -634,6 +743,36 @@ function drawBrushOutline(
   ctx.lineWidth = 2
   ctx.lineDashOffset = 3
   ctx.strokeRect(x, y, w, h)
+  ctx.restore()
+}
+
+function drawEyedropperOutline(
+  ctx: CanvasRenderingContext2D,
+  pixelX: number,
+  pixelY: number,
+  cellSize: number,
+  canvasPxWidth: number,
+  canvasPxHeight: number
+) {
+  const x = pixelX * cellSize
+  const y = pixelY * cellSize
+
+  if (x + cellSize <= 0 || y + cellSize <= 0 || x >= canvasPxWidth || y >= canvasPxHeight) return
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(0, 0, canvasPxWidth, canvasPxHeight)
+  ctx.clip()
+  ctx.fillStyle = 'rgba(14, 165, 233, 0.18)'
+  ctx.fillRect(x, y, cellSize, cellSize)
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)'
+  ctx.lineWidth = 2
+  ctx.setLineDash([4, 3])
+  ctx.strokeRect(x, y, cellSize, cellSize)
+  ctx.setLineDash([])
+  ctx.strokeStyle = '#0ea5e9'
+  ctx.lineWidth = 2
+  ctx.strokeRect(x, y, cellSize, cellSize)
   ctx.restore()
 }
 
@@ -777,6 +916,7 @@ export function CanvasWidget() {
   const containerRef = useRef<HTMLDivElement>(null)
   const transformRef = useRef<ReactZoomPanPinchRef | null>(null)
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const isPointerOverCanvasRef = useRef(false)
   const strokeToolRef = useRef<Tool>('pencil')
   const activePointerIdRef = useRef<number | null>(null)
@@ -796,6 +936,7 @@ export function CanvasWidget() {
   const clipboardRef = useRef<ClipboardSelection | null>(null)
   const scaleHandleRef = useRef<TransformHandle | null>(null)
   const scaleStartRef = useRef<{ bounds: LayerBounds; pixels: Map<string, string> } | null>(null)
+  const activeRotateCornerRef = useRef<RotateCorner | null>(null)
   const rotateStartRef = useRef<{
     bounds: LayerBounds
     center: { x: number; y: number }
@@ -809,9 +950,11 @@ export function CanvasWidget() {
   const [isSelecting, setIsSelecting] = useState(false)
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const [isAltEyedropperPressed, setIsAltEyedropperPressed] = useState(false)
   const [layerDragOffset, setLayerDragOffset] = useState({ x: 0, y: 0 })
   const [isMoveModifierPressed, setIsMoveModifierPressed] = useState(false)
   const [hoveredHandle, setHoveredHandle] = useState<TransformHandle | null>(null)
+  const [hoveredRotateCorner, setHoveredRotateCorner] = useState<RotateCorner | null>(null)
   const [scalePreviewPixels, setScalePreviewPixels] = useState<Map<string, string> | null>(null)
   const [scalePreviewBounds, setScalePreviewBounds] = useState<LayerBounds | null>(null)
   const [rotatePreviewPixels, setRotatePreviewPixels] = useState<Map<string, string> | null>(null)
@@ -837,13 +980,19 @@ export function CanvasWidget() {
     selectedTool !== 'selection' && (isMoveModifierPressed || isLayerDragging || isLayerScaling || isLayerRotating) && previewBounds
   )
   const activeSelectionBounds = isSelecting ? selectionPreviewBounds : selectionBounds
+  const isTemporaryEyedropperActive =
+    isAltEyedropperPressed && selectedTool !== 'selection' && !isLayerDragging && !isLayerScaling && !isLayerRotating
+  const effectiveHoverTool = isTemporaryEyedropperActive ? 'eyedropper' : selectedTool
 
   const showEraserOutline = selectedTool === 'eraser' || stylusEraserActive
   const showBrushOutline =
     selectedTool === 'pencil' && !stylusEraserActive && !isLayerDragging && !isLayerScaling && !isLayerRotating
+  const showEyedropperOutline =
+    effectiveHoverTool === 'eyedropper' && !stylusEraserActive && !isLayerDragging && !isLayerScaling && !isLayerRotating
 
   const eraserOutlineKey = showEraserOutline ? `${mousePosition.x},${mousePosition.y}` : ''
   const brushOutlineKey = showBrushOutline ? `${mousePosition.x},${mousePosition.y},${selectedColor}` : ''
+  const eyedropperOutlineKey = showEyedropperOutline ? `${mousePosition.x},${mousePosition.y}` : ''
 
   const cutSelection = () => {
     if (!selectionBounds) return
@@ -1116,6 +1265,10 @@ export function CanvasWidget() {
       if (event.key === 'Control') {
         setIsMoveModifierPressed(true)
       }
+
+      if (event.key === 'Alt' && !isEditableElement(event.target)) {
+        setIsAltEyedropperPressed(true)
+      }
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -1132,10 +1285,15 @@ export function CanvasWidget() {
         setIsMoveModifierPressed(false)
         setHoveredHandle(null)
       }
+
+      if (event.key === 'Alt') {
+        setIsAltEyedropperPressed(false)
+      }
     }
 
     const handleWindowBlur = () => {
       setIsMoveModifierPressed(false)
+      setIsAltEyedropperPressed(false)
       setHoveredHandle(null)
       setIsSpacePressed(false)
       setIsPanning(false)
@@ -1253,6 +1411,28 @@ export function CanvasWidget() {
         drawPixels(ctx, layer.pixels, pixelDisplaySize)
       })
 
+  }, [
+    activeLayerId,
+    canvasRef,
+    isLayerDragging,
+    isLayerRotating,
+    isLayerScaling,
+    layerDragOffset.x,
+    layerDragOffset.y,
+    layers,
+    rotatePreviewPixels,
+    scalePreviewPixels,
+  ])
+
+  useEffect(() => {
+    const overlayCanvas = overlayCanvasRef.current
+    if (!overlayCanvas) return
+
+    const ctx = overlayCanvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+
     if (shouldShowTransformBox && previewBounds) {
       drawTransformBox(
         ctx,
@@ -1261,42 +1441,61 @@ export function CanvasWidget() {
         isLayerRotating ? 'rotate' : isLayerScaling ? scaleHandleRef.current : hoveredHandle,
         zoom
       )
+
+      if (isLayerRotating) {
+        drawRotationAngleBadge(ctx, previewBounds, pixelDisplaySize, rotatePreviewAngle, zoom)
+      }
     }
 
     if (activeSelectionBounds) {
       drawSelectionBox(ctx, activeSelectionBounds, pixelDisplaySize, zoom)
     }
 
-    if (showEraserOutline) {
+    if (showEyedropperOutline) {
+      drawEyedropperOutline(
+        ctx,
+        mousePosition.x,
+        mousePosition.y,
+        pixelDisplaySize,
+        overlayCanvas.width,
+        overlayCanvas.height
+      )
+    } else if (showEraserOutline) {
       const { ox, oy } = getBrushOrigin(mousePosition.x, mousePosition.y, brushSize)
-      drawEraserOutline(ctx, ox, oy, brushSize, pixelDisplaySize, canvas.width, canvas.height)
+      drawEraserOutline(ctx, ox, oy, brushSize, pixelDisplaySize, overlayCanvas.width, overlayCanvas.height)
     } else if (showBrushOutline) {
       const { ox, oy } = getBrushOrigin(mousePosition.x, mousePosition.y, brushSize)
-      drawBrushOutline(ctx, ox, oy, brushSize, pixelDisplaySize, canvas.width, canvas.height, selectedColor)
+      drawBrushOutline(
+        ctx,
+        ox,
+        oy,
+        brushSize,
+        pixelDisplaySize,
+        overlayCanvas.width,
+        overlayCanvas.height,
+        selectedColor
+      )
     }
   }, [
-    activeLayerId,
+    activeSelectionBounds,
     brushOutlineKey,
     brushSize,
-    canvasRef,
+    eyedropperOutlineKey,
+    eraserOutlineKey,
     hoveredHandle,
-    isLayerDragging,
     isLayerRotating,
     isLayerScaling,
-    layerDragOffset.x,
-    layerDragOffset.y,
-    layers,
     mousePosition.x,
     mousePosition.y,
+    overlayCanvasRef,
+    pixelDisplaySize,
     previewBounds,
-    activeSelectionBounds,
-    rotatePreviewPixels,
-    scalePreviewPixels,
+    rotatePreviewAngle,
     selectedColor,
     shouldShowTransformBox,
     showBrushOutline,
+    showEyedropperOutline,
     showEraserOutline,
-    eraserOutlineKey,
     zoom
   ])
 
@@ -1387,8 +1586,10 @@ export function CanvasWidget() {
     dragOffsetRef.current = { x: 0, y: 0 }
     scaleHandleRef.current = null
     scaleStartRef.current = null
+    activeRotateCornerRef.current = null
     rotateStartRef.current = null
     setLayerDragOffset({ x: 0, y: 0 })
+    setHoveredRotateCorner(null)
     setScalePreviewPixels(null)
     setScalePreviewBounds(null)
     setRotatePreviewPixels(null)
@@ -1421,6 +1622,14 @@ export function CanvasWidget() {
 
   const resetPan = () => {
     setIsPanning(false)
+  }
+
+  const getSnappedRotationAngle = (angleDegrees: number, snapToFiveDegrees: boolean) => {
+    if (!snapToFiveDegrees) {
+      return angleDegrees
+    }
+
+    return Math.round(angleDegrees / 5) * 5
   }
 
   const endStroke = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1485,7 +1694,12 @@ export function CanvasWidget() {
       return
     }
 
-    strokeToolRef.current = isStylusEraser(event) ? 'eraser' : selectedTool
+    const pointerTool =
+      event.altKey && selectedTool !== 'selection'
+        ? 'eyedropper'
+        : selectedTool
+
+    strokeToolRef.current = isStylusEraser(event) ? 'eraser' : pointerTool
     activePointerIdRef.current = event.pointerId
     event.currentTarget.setPointerCapture(event.pointerId)
 
@@ -1493,7 +1707,7 @@ export function CanvasWidget() {
     const canvasPoint = getCanvasCoordinates(event)
     setMousePosition(coords)
 
-    if (selectedTool === 'selection') {
+    if (pointerTool === 'selection') {
       const clampedCoords = clampPointToCanvas(coords.x, coords.y)
       selectionStartRef.current = clampedCoords
       const nextSelectionBounds = createBoundsFromPoints(clampedCoords.x, clampedCoords.y, clampedCoords.x, clampedCoords.y)
@@ -1504,24 +1718,29 @@ export function CanvasWidget() {
       return
     }
 
-    if (selectedTool === 'eyedropper') {
+    if (pointerTool === 'eyedropper') {
       const clampedCoords = clampPointToCanvas(coords.x, coords.y)
       const pickedColor = getVisibleLayerColorAtPoint(layers, clampedCoords.x, clampedCoords.y)
       setSelectedColor(pickedColor)
       setPickerColor(pickedColor)
-      setSelectedTool('pencil')
+      if (selectedTool === 'eyedropper') {
+        setSelectedTool('pencil')
+      }
       setIsDrawing(false)
       return
     }
 
     if (event.ctrlKey && activeLayer && activeLayerBounds) {
       pushHistory()
-      const handle =
-        getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom) ??
-        getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
+      const directHandle = getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
+      const rotateCorner = directHandle
+        ? null
+        : getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
+      const handle = directHandle ?? (rotateCorner ? 'rotate' : null)
 
       if (handle) {
         if (handle === 'rotate') {
+          activeRotateCornerRef.current = rotateCorner
           const center = getBoundsCenter(activeLayerBounds)
           const pointerX = canvasPoint.x / pixelDisplaySize
           const pointerY = canvasPoint.y / pixelDisplaySize
@@ -1565,7 +1784,14 @@ export function CanvasWidget() {
     if (strokeToolRef.current === 'rectangle' || strokeToolRef.current === 'ellipse') {
       shapeDragStartRef.current = coords
       shapeBasePixelsRef.current = new Map(pixels)
-      drawShape(coords, coords, strokeToolRef.current, brushSize, shapeBasePixelsRef.current)
+      drawShape(
+        coords,
+        coords,
+        strokeToolRef.current,
+        brushSize,
+        shapeBasePixelsRef.current,
+        event.shiftKey
+      )
     } else if (
       event.shiftKey &&
       (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser')
@@ -1599,17 +1825,21 @@ export function CanvasWidget() {
     const coords = getPixelCoordinates(event)
     const canvasPoint = getCanvasCoordinates(event)
     setMousePosition(coords)
+    setIsAltEyedropperPressed(event.altKey)
 
     const stylusEraser = isStylusEraser(event)
     setStylusEraserActive(stylusEraser)
 
     if (activePointerIdRef.current === null && selectedTool !== 'selection' && isMoveModifierPressed && activeLayerBounds) {
-      setHoveredHandle(
-        getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom) ??
-        getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
-      )
+      const directHandle = getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
+      const rotateCorner = directHandle
+        ? null
+        : getCornerRotateHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
+      setHoveredHandle(directHandle ?? (rotateCorner ? 'rotate' : null))
+      setHoveredRotateCorner(rotateCorner)
     } else if (!isMoveModifierPressed && !isLayerScaling && !isLayerRotating) {
       setHoveredHandle(null)
+      setHoveredRotateCorner(null)
     }
 
     if (activePointerIdRef.current !== event.pointerId) return
@@ -1637,7 +1867,8 @@ export function CanvasWidget() {
         coords,
         strokeToolRef.current,
         brushSize,
-        shapeBasePixelsRef.current
+        shapeBasePixelsRef.current,
+        event.shiftKey
       )
       return
     }
@@ -1660,10 +1891,13 @@ export function CanvasWidget() {
     if (isLayerRotating && rotateStartRef.current) {
       const pointerX = canvasPoint.x / pixelDisplaySize
       const pointerY = canvasPoint.y / pixelDisplaySize
-      const nextAngle =
+      const rawAngle =
         Math.atan2(pointerY - rotateStartRef.current.center.y, pointerX - rotateStartRef.current.center.x) -
         rotateStartRef.current.startAngle
-      const nextAngleDegrees = Number(((nextAngle * 180) / Math.PI).toFixed(1))
+      const nextAngleDegrees = getSnappedRotationAngle(
+        Number(((rawAngle * 180) / Math.PI).toFixed(1)),
+        event.shiftKey
+      )
       const nextPixels = rotatePixels(
         rotateStartRef.current.pixels,
         rotateStartRef.current.bounds,
@@ -1774,6 +2008,8 @@ export function CanvasWidget() {
     if (event.pointerType === 'pen') {
       setStylusEraserActive(false)
     }
+
+    setIsAltEyedropperPressed(false)
 
     if (!isLayerScaling && !isLayerRotating) {
       setHoveredHandle(null)
@@ -1963,7 +2199,7 @@ export function CanvasWidget() {
   }
 
   const floodFill = (startX: number, startY: number, fillColor: string) => {
-    const targetColor = getPixelColor(pixels, startX, startY)
+    const targetColor = pixels.get(`${startX},${startY}`) ?? null
     if (targetColor === fillColor) return
 
     const stack: [number, number][] = [[startX, startY]]
@@ -1974,13 +2210,9 @@ export function CanvasWidget() {
       const key = `${x},${y}`
 
       if (x < 0 || x >= canvasSize.width || y < 0 || y >= canvasSize.height) continue
-      if (getPixelColor(nextPixels, x, y) !== targetColor) continue
+      if ((nextPixels.get(key) ?? null) !== targetColor) continue
 
-      if (fillColor === '#ffffff') {
-        nextPixels.delete(key)
-      } else {
-        nextPixels.set(key, fillColor)
-      }
+      nextPixels.set(key, fillColor)
 
       stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1])
     }
@@ -2012,6 +2244,24 @@ export function CanvasWidget() {
     }
 
     setPixels(nextPixels)
+  }
+
+  const getConstrainedSquareEndPoint = (
+    startPoint: { x: number; y: number },
+    endPoint: { x: number; y: number }
+  ) => {
+    const deltaX = endPoint.x - startPoint.x
+    const deltaY = endPoint.y - startPoint.y
+    const side = Math.max(Math.abs(deltaX), Math.abs(deltaY))
+
+    if (side === 0) {
+      return endPoint
+    }
+
+    return {
+      x: startPoint.x + (deltaX < 0 ? -side : side),
+      y: startPoint.y + (deltaY < 0 ? -side : side)
+    }
   }
 
   const drawEllipse = (
@@ -2058,10 +2308,16 @@ export function CanvasWidget() {
     endPoint: { x: number; y: number },
     tool: Tool,
     strokeBrushSize: number,
-    basePixels = pixels
+    basePixels = pixels,
+    constrainProportions = false
   ) => {
     if (tool === 'rectangle') {
-      drawRectangle(startPoint, endPoint, strokeBrushSize, basePixels)
+      drawRectangle(
+        startPoint,
+        constrainProportions ? getConstrainedSquareEndPoint(startPoint, endPoint) : endPoint,
+        strokeBrushSize,
+        basePixels
+      )
       return
     }
 
@@ -2126,20 +2382,24 @@ export function CanvasWidget() {
   }
 
   const cursorValue =
-    selectedTool === 'selection'
+    effectiveHoverTool === 'eyedropper'
+      ? EYEDROPPER_CURSOR
+      : selectedTool === 'selection'
       ? 'crosshair'
       : isPanning
         ? 'grabbing'
         : isSpacePressed
           ? 'grab'
           : isLayerRotating
-            ? ROTATE_CURSOR
+            ? getRotateCursorForCorner(rotatePreviewAngle, activeRotateCornerRef.current)
             : isLayerScaling && scaleHandleRef.current
-              ? getCursorForHandle(scaleHandleRef.current)
+              ? getCursorForHandle(scaleHandleRef.current, rotatePreviewAngle)
               : isLayerDragging
                 ? 'grabbing'
                 : hoveredHandle && isMoveModifierPressed
-                  ? getCursorForHandle(hoveredHandle)
+                  ? hoveredHandle === 'rotate'
+                    ? getRotateCursorForCorner(rotatePreviewAngle, hoveredRotateCorner)
+                    : getCursorForHandle(hoveredHandle, rotatePreviewAngle)
                   : isMoveModifierPressed && activeLayerBounds
                     ? 'grab'
                     : 'crosshair'
@@ -2247,13 +2507,23 @@ export function CanvasWidget() {
                 ref={canvasRef as React.RefObject<HTMLCanvasElement>}
                 width={canvasWidth}
                 height={canvasHeight}
+                className="relative z-0 rounded-lg border-2 border-gray-200 bg-white shadow-lg max-w-none h-auto shrink-0"
+                style={{
+                  width: `${canvasWidth}px`,
+                  height: `${canvasHeight}px`
+                }}
+              />
+              <motion.canvas
+                ref={overlayCanvasRef}
+                width={canvasWidth}
+                height={canvasHeight}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerCancel}
                 onLostPointerCapture={handleLostPointerCapture}
                 onPointerLeave={handlePointerLeave}
-                className="touch-none relative z-0 border-2 border-gray-200 rounded-lg bg-white shadow-lg max-w-none h-auto shrink-0"
+                className="touch-none absolute inset-0 z-20 max-w-none h-auto shrink-0"
                 style={{
                   cursor: cursorValue,
                   width: `${canvasWidth}px`,
