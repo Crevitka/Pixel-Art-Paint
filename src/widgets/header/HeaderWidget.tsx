@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import { Download, FolderOpen, Palette, Save, Settings, Trash2 } from 'lucide-react'
 import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
+import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
 import { useToolContext } from '@/features/tools'
 import {
   deserializeLayers,
@@ -64,6 +65,7 @@ export function HeaderWidget({
   currentProjectName,
   onProjectFileChange
 }: HeaderWidgetProps) {
+  const { hotkeys } = useHotkeyContext()
   const {
     canvasSize,
     clearCanvas,
@@ -376,11 +378,7 @@ export function HeaderWidget({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const isSaveShortcut =
-        (event.ctrlKey || event.metaKey) &&
-        event.code === 'KeyS'
-
-      if (!isSaveShortcut) return
+      if (!eventMatchesHotkey(event, hotkeys.saveProject)) return
 
       event.preventDefault()
       event.stopPropagation()
@@ -391,22 +389,7 @@ export function HeaderWidget({
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true })
     }
-  }, [
-    activeLayerId,
-    brushSize,
-    canvasSize,
-    isReferenceVisible,
-    layers,
-    paletteColors,
-    palettePresets,
-    pickerColor,
-    referenceImageUrl,
-    referenceOpacity,
-    referenceScale,
-    selectedColor,
-    selectedTool,
-    activePalettePresetId
-  ])
+  }, [handleSaveProject, hotkeys.saveProject])
 
   const loadProject = async (file: File, fileHandle: FileSystemFileHandle | null = null) => {
     const project = await readProjectFile(file)

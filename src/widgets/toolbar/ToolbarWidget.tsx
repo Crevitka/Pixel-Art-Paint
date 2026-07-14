@@ -29,7 +29,9 @@ import {
 } from 'react'
 import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
+import { eventMatchesHotkey, formatHotkey, useHotkeyContext } from '@/features/hotkeys'
 import { ToolButton, useToolContext } from '@/features/tools'
+import type { Tool } from '@/shared/types'
 
 export type ToolbarBlockId = 'tools' | 'reference' | 'palette' | 'brush' | 'layers'
 export type ToolbarPanelId = 'left' | 'center' | 'right'
@@ -76,6 +78,36 @@ const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
   right: ['tools', 'reference', 'palette', 'brush', 'layers']
 }
 
+function isEditableElement(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable
+  )
+}
+
+function getToolHotkeyLabel(tool: Tool, hotkeys: ReturnType<typeof useHotkeyContext>['hotkeys']) {
+  switch (tool) {
+    case 'pencil':
+      return formatHotkey(hotkeys.selectPencil)
+    case 'eraser':
+      return formatHotkey(hotkeys.selectEraser)
+    case 'fill':
+      return formatHotkey(hotkeys.selectFill)
+    case 'selection':
+      return formatHotkey(hotkeys.selectSelection)
+    case 'rectangle':
+      return formatHotkey(hotkeys.selectRectangle)
+    case 'ellipse':
+      return formatHotkey(hotkeys.selectEllipse)
+    case 'eyedropper':
+      return formatHotkey(hotkeys.selectEyedropper)
+  }
+}
+
 export function ToolbarWidget({
   panelId,
   blockIds,
@@ -101,6 +133,7 @@ export function ToolbarWidget({
     updatePaletteColor,
     reorderPaletteColor
   } = useColorContext()
+  const { hotkeys } = useHotkeyContext()
   const {
     layers,
     activeLayerId,
@@ -148,7 +181,7 @@ export function ToolbarWidget({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'F2') return
+      if (!eventMatchesHotkey(event, hotkeys.renameLayer)) return
       if (editingLayerId) return
 
       const activeLayer = layers.find((layer) => layer.id === activeLayerId)
@@ -163,7 +196,43 @@ export function ToolbarWidget({
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [activeLayerId, editingLayerId, layers])
+  }, [activeLayerId, editingLayerId, hotkeys.renameLayer, layers])
+
+  useEffect(() => {
+    const handleToolHotkeys = (event: KeyboardEvent) => {
+      if (isEditableElement(event.target) || isEditableElement(document.activeElement)) return
+
+      const toolHotkeys = [
+        { binding: hotkeys.selectPencil, tool: 'pencil' as const },
+        { binding: hotkeys.selectEraser, tool: 'eraser' as const },
+        { binding: hotkeys.selectFill, tool: 'fill' as const },
+        { binding: hotkeys.selectSelection, tool: 'selection' as const },
+        { binding: hotkeys.selectRectangle, tool: 'rectangle' as const },
+        { binding: hotkeys.selectEllipse, tool: 'ellipse' as const },
+        { binding: hotkeys.selectEyedropper, tool: 'eyedropper' as const }
+      ]
+
+      const matchedHotkey = toolHotkeys.find(({ binding }) => eventMatchesHotkey(event, binding))
+      if (!matchedHotkey) return
+
+      event.preventDefault()
+      setSelectedTool(matchedHotkey.tool)
+    }
+
+    window.addEventListener('keydown', handleToolHotkeys)
+    return () => {
+      window.removeEventListener('keydown', handleToolHotkeys)
+    }
+  }, [
+    hotkeys.selectEllipse,
+    hotkeys.selectEraser,
+    hotkeys.selectEyedropper,
+    hotkeys.selectFill,
+    hotkeys.selectPencil,
+    hotkeys.selectRectangle,
+    hotkeys.selectSelection,
+    setSelectedTool
+  ])
 
   const handleAddPaletteColor = () => {
     paletteColorDraftRef.current = pickerColor
@@ -456,7 +525,7 @@ export function ToolbarWidget({
                   key={tool.id}
                   tool={tool.id}
                   icon={tool.icon}
-                  label={tool.label}
+                  label={`${tool.label} [${getToolHotkeyLabel(tool.id, hotkeys)}]`}
                   isActive={selectedTool === tool.id}
                   onClick={() => setSelectedTool(tool.id)}
                   iconOnly
@@ -472,7 +541,7 @@ export function ToolbarWidget({
                     key={tool.id}
                     tool={tool.id}
                     icon={tool.icon}
-                    label={tool.label}
+                    label={`${tool.label} [${getToolHotkeyLabel(tool.id, hotkeys)}]`}
                     isActive={selectedTool === tool.id}
                     onClick={() => setSelectedTool(tool.id)}
                   />

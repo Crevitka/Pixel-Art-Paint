@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import { useColorContext } from '@/features/colors'
 import { useCanvasContext } from '@/features/canvas'
+import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
 import { useToolContext } from '@/features/tools'
 import eyedropperCursorUrl from '@/shared/ui/eyedropperCursor.svg'
 import type { CanvasSize, Layer, Tool } from '@/shared/types'
@@ -911,6 +912,7 @@ export function CanvasWidget() {
   } = useCanvasContext()
 
   const { selectedTool, setSelectedTool, brushSize } = useToolContext()
+  const { hotkeys } = useHotkeyContext()
   const { selectedColor, setSelectedColor, setPickerColor } = useColorContext()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1236,25 +1238,25 @@ export function CanvasWidget() {
         }
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyZ') {
+      if (eventMatchesHotkey(event, hotkeys.undo)) {
         event.preventDefault()
         undo()
         return
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyC' && !isEditableElement(event.target)) {
+      if (eventMatchesHotkey(event, hotkeys.copySelection) && !isEditableElement(event.target)) {
         event.preventDefault()
         copySelection()
         return
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX' && !isEditableElement(event.target)) {
+      if (eventMatchesHotkey(event, hotkeys.cutSelection) && !isEditableElement(event.target)) {
         event.preventDefault()
         cutSelection()
         return
       }
 
-      if (event.key === 'Escape') {
+      if (eventMatchesHotkey(event, hotkeys.cancel)) {
         clearPendingPastedImage()
         setSelectionBounds(null)
         setSelectionPreviewBounds(null)
@@ -1308,7 +1310,16 @@ export function CanvasWidget() {
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [clearPendingPastedImage, copySelection, cutSelection, undo])
+  }, [
+    clearPendingPastedImage,
+    copySelection,
+    cutSelection,
+    hotkeys.cancel,
+    hotkeys.copySelection,
+    hotkeys.cutSelection,
+    hotkeys.undo,
+    undo
+  ])
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
