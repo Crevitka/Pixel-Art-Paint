@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { useI18nContext } from '@/features/i18n'
 import { CanvasSize, Layer, MousePosition } from '@/shared/types'
 
 type CanvasHistoryEntry = {
@@ -99,6 +100,7 @@ function flipPixelsVertically(pixels: Map<string, string>) {
 }
 
 export function useCanvas() {
+  const { t } = useI18nContext()
   const nextLayerNumberRef = useRef(2)
   const historyRef = useRef<CanvasHistoryEntry[]>([])
   const [canvasSize, setCanvasSizeState] = useState<CanvasSize>({ width: 32, height: 32 })
@@ -106,7 +108,7 @@ export function useCanvas() {
   const [minZoom, setMinZoomState] = useState(0.5)
   const [isDrawing, setIsDrawing] = useState(false)
   const [mousePosition, setMousePosition] = useState<MousePosition>({ x: 0, y: 0 })
-  const [layers, setLayers] = useState<Layer[]>(() => [createLayer('layer-1', 'Слой 1')])
+  const [layers, setLayers] = useState<Layer[]>(() => [createLayer('layer-1', t('project.defaultLayer', { number: 1 }))])
   const [activeLayerId, setActiveLayerId] = useState('layer-1')
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null)
   const [referenceOpacity, setReferenceOpacity] = useState(0.45)
@@ -209,7 +211,7 @@ export function useCanvas() {
     const nextId = `layer-${nextLayerNumber}`
 
     setLayers((currentLayers) => [
-      createLayer(nextId, `Слой ${nextLayerNumber}`),
+      createLayer(nextId, t('project.defaultLayer', { number: nextLayerNumber })),
       ...currentLayers
     ])
     setActiveLayerId(nextId)
@@ -223,13 +225,13 @@ export function useCanvas() {
 
     setLayers((currentLayers) => [
       {
-        ...createLayer(nextId, name?.trim() || `Слой ${nextLayerNumber}`),
+        ...createLayer(nextId, name?.trim() || t('project.defaultLayer', { number: nextLayerNumber })),
         pixels: new Map(pixels)
       },
       ...currentLayers
     ])
     setActiveLayerId(nextId)
-  }, [pushHistory])
+  }, [pushHistory, t])
 
   const reorderLayer = useCallback((
     layerId: string,
@@ -255,7 +257,7 @@ export function useCanvas() {
       nextLayers.splice(insertIndex, 0, movedLayer)
       return nextLayers
     })
-  }, [pushHistory])
+  }, [pushHistory, t])
 
   const removeLayer = useCallback((layerId: string) => {
     if (layers.length === 1) return

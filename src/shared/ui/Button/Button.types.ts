@@ -1,6 +1,6 @@
-import { ButtonHTMLAttributes } from 'react'
+import type { HTMLMotionProps } from 'framer-motion'
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends HTMLMotionProps<'button'> {
   variant?: 'primary' | 'secondary'
   size?: 'sm' | 'md' | 'lg'
-} 
+}

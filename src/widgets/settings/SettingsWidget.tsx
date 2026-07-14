@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { Grid3X3, Keyboard, Lock, RotateCcw, Settings, Unlock, X } from 'lucide-react'
 import { useCanvasContext } from '@/features/canvas'
+import { useI18nContext } from '@/features/i18n'
 import {
   DEFAULT_HOTKEYS,
   HOTKEY_DEFINITIONS,
@@ -17,7 +18,7 @@ type SettingsWidgetProps = {
   onClose: () => void
 }
 
-type SettingsTab = 'canvas' | 'shortcuts'
+type SettingsTab = 'canvas' | 'language' | 'shortcuts'
 
 const TAB_BUTTON_CLASSES =
   'rounded-xl border-2 px-3 py-2 text-sm font-medium transition-colors'
@@ -25,6 +26,7 @@ const TAB_BUTTON_CLASSES =
 export function SettingsWidget({ onClose }: SettingsWidgetProps) {
   const { canvasSize, setCanvasSize } = useCanvasContext()
   const { hotkeys, setHotkey, resetHotkeys } = useHotkeyContext()
+  const { locale, setLocale, t } = useI18nContext()
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('canvas')
   const [isAspectRatioLocked, setIsAspectRatioLocked] = useState(true)
@@ -63,8 +65,11 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
 
       const conflictingHotkeyId = findConflictingHotkeyId(hotkeys, nextBinding, capturingHotkeyId)
       if (conflictingHotkeyId) {
-        const conflictingHotkey = HOTKEY_DEFINITIONS.find((hotkey) => hotkey.id === conflictingHotkeyId)
-        setHotkeyError(`Сочетание уже используется: ${conflictingHotkey?.description ?? conflictingHotkeyId}`)
+        setHotkeyError(
+          t('settings.shortcuts.conflict', {
+            name: t(`hotkey.${conflictingHotkeyId}`)
+          })
+        )
         return
       }
 
@@ -132,11 +137,11 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
     <section className="space-y-4 rounded-2xl border-2 border-gray-200 bg-white p-4">
       <h3 className="flex items-center gap-2 text-base font-semibold text-gray-800">
         <Grid3X3 className="h-4 w-4" />
-        Размер холста
+        {t('settings.canvas.title')}
       </h3>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-gray-700">Ширина и высота</span>
+          <span className="text-sm font-medium text-gray-700">{t('settings.canvas.size')}</span>
           <button
             type="button"
             onClick={toggleAspectRatioLock}
@@ -146,7 +151,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                 : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100'
             }`}
             aria-pressed={isAspectRatioLocked}
-            title={isAspectRatioLocked ? 'Сохранение пропорций включено' : 'Сохранение пропорций выключено'}
+            title={isAspectRatioLocked ? t('settings.canvas.aspectOn') : t('settings.canvas.aspectOff')}
           >
             {isAspectRatioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
           </button>
@@ -173,8 +178,44 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
           />
         </div>
         <p className="text-xs leading-5 text-gray-500">
-          Размер холста можно менять от 8 до 512 пикселей по каждой стороне.
+          {t('settings.canvas.hint')}
         </p>
+      </div>
+    </section>
+  )
+
+  const renderLanguageTab = () => (
+    <section className="space-y-4 rounded-2xl border-2 border-gray-200 bg-white p-4">
+      <h3 className="flex items-center gap-2 text-base font-semibold text-gray-800">
+        <Settings className="h-4 w-4" />
+        {t('settings.language.title')}
+      </h3>
+      <p className="text-sm text-gray-500">
+        {t('settings.language.hint')}
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => setLocale('ru')}
+          className={`rounded-xl border-2 px-4 py-3 text-sm font-medium transition ${
+            locale === 'ru'
+              ? 'border-primary-500 bg-primary-50 text-primary-700'
+              : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+          }`}
+        >
+          {t('common.russian')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setLocale('en')}
+          className={`rounded-xl border-2 px-4 py-3 text-sm font-medium transition ${
+            locale === 'en'
+              ? 'border-primary-500 bg-primary-50 text-primary-700'
+              : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+          }`}
+        >
+          {t('common.english')}
+        </button>
       </div>
     </section>
   )
@@ -185,10 +226,10 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
         <div>
           <h3 className="flex items-center gap-2 text-base font-semibold text-gray-800">
             <Keyboard className="h-4 w-4" />
-            Хоткеи
+            {t('settings.shortcuts.title')}
           </h3>
           <p className="mt-1 text-sm text-gray-500">
-            Нажми «Изменить», затем новое сочетание клавиш.
+            {t('settings.shortcuts.hint')}
           </p>
         </div>
         <button
@@ -201,7 +242,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
           className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
         >
           <RotateCcw className="h-4 w-4" />
-          Сбросить все
+          {t('settings.shortcuts.resetAll')}
         </button>
       </div>
 
@@ -221,9 +262,9 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
               className="flex flex-col gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 md:flex-row md:items-center md:justify-between"
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium text-gray-800">{hotkey.description}</div>
+                <div className="text-sm font-medium text-gray-800">{t(`hotkey.${hotkey.id}`)}</div>
                 <div className="mt-1 text-xs text-gray-500">
-                  {isCapturing ? 'Нажмите новое сочетание...' : formatHotkey(hotkeys[hotkey.id])}
+                  {isCapturing ? t('settings.shortcuts.capturing') : formatHotkey(hotkeys[hotkey.id])}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -242,7 +283,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                       : 'border border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
                   }`}
                 >
-                  {isCapturing ? 'Отмена' : 'Изменить'}
+                  {isCapturing ? t('common.cancel') : t('settings.shortcuts.edit')}
                 </button>
                 <button
                   type="button"
@@ -255,7 +296,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                   }}
                   className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
                 >
-                  По умолчанию
+                  {t('common.default')}
                 </button>
               </div>
             </div>
@@ -264,7 +305,7 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
       </div>
 
       <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
-        <div className="text-sm font-semibold text-gray-800">Жесты и модификаторы</div>
+        <div className="text-sm font-semibold text-gray-800">{t('settings.shortcuts.gestures')}</div>
         <div className="mt-3 space-y-2">
           {HOTKEY_GESTURES.map((hotkey) => (
             <div
@@ -275,7 +316,19 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                 {hotkey.keys}
               </span>
               <span className="text-right text-sm text-gray-600">
-                {hotkey.description}
+                {t(
+                  hotkey.keys === 'Ctrl + V'
+                    ? 'gesture.paste'
+                    : hotkey.keys === 'Shift'
+                    ? 'gesture.shift'
+                    : hotkey.keys === 'Ctrl'
+                    ? 'gesture.ctrl'
+                    : hotkey.keys === 'Ctrl + Shift'
+                    ? 'gesture.ctrlShift'
+                    : hotkey.keys === 'Space + drag'
+                    ? 'gesture.spaceDrag'
+                    : 'gesture.alt'
+                )}
               </span>
             </div>
           ))}
@@ -303,18 +356,18 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
             <div>
               <h2 className="flex items-center gap-2 text-2xl font-bold text-gray-800">
                 <Settings className="h-6 w-6" />
-                Настройки
+                {t('settings.title')}
               </h2>
               <p className="mt-1 text-sm text-gray-500">
-                Параметры холста и быстрые клавиши редактора.
+                {t('settings.description')}
               </p>
             </div>
             <button
               type="button"
               onClick={onClose}
               className="rounded-xl border-2 border-gray-200 bg-white p-2 text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
-              aria-label="Закрыть настройки"
-              title="Закрыть"
+              aria-label={t('settings.closeAria')}
+              title={t('common.close')}
             >
               <X className="h-5 w-5" />
             </button>
@@ -330,7 +383,18 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                   : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
               }`}
             >
-              Холст
+              {t('settings.tab.canvas')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('language')}
+              className={`${TAB_BUTTON_CLASSES} ${
+                activeTab === 'language'
+                  ? 'border-primary-500 bg-primary-50 text-primary-700'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {t('settings.tab.language')}
             </button>
             <button
               type="button"
@@ -341,13 +405,14 @@ export function SettingsWidget({ onClose }: SettingsWidgetProps) {
                   : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
               }`}
             >
-              Хоткеи
+              {t('settings.tab.shortcuts')}
             </button>
           </div>
         </div>
 
         <div className="min-h-0 overflow-y-auto px-6 py-5 md:px-7">
           {activeTab === 'canvas' ? renderCanvasTab() : null}
+          {activeTab === 'language' ? renderLanguageTab() : null}
           {activeTab === 'shortcuts' ? renderShortcutsTab() : null}
         </div>
       </motion.div>

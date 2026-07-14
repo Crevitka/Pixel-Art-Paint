@@ -4,6 +4,7 @@ import { Download, FolderOpen, Palette, Save, Settings, Trash2 } from 'lucide-re
 import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
 import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
+import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import {
   deserializeLayers,
@@ -66,6 +67,7 @@ export function HeaderWidget({
   onProjectFileChange
 }: HeaderWidgetProps) {
   const { hotkeys } = useHotkeyContext()
+  const { t } = useI18nContext()
   const {
     canvasSize,
     clearCanvas,
@@ -186,7 +188,7 @@ export function HeaderWidget({
       lastSavedProjectTextRef.current = builtProject.projectText
       setSaveStatus('saved')
       setSnackbar({
-        message: 'Проект сохранен',
+        message: t('header.saved'),
         status: 'saved'
       })
       return {
@@ -324,7 +326,7 @@ export function HeaderWidget({
     lastSavedProjectTextRef.current = builtProject.projectText
     setSaveStatus('saved')
     setSnackbar({
-      message: 'Проект сохранен',
+      message: t('header.saved'),
       status: 'saved'
     })
     saveRecentProject({
@@ -424,7 +426,7 @@ export function HeaderWidget({
   useEffect(() => {
     if (saveStatus === 'saving') {
       setSnackbar({
-        message: 'Сохранение...',
+        message: t('header.saving'),
         status: 'saving'
       })
       return
@@ -432,12 +434,12 @@ export function HeaderWidget({
 
     if (saveStatus === 'error') {
       setSnackbar({
-        message: 'Ошибка сохранения',
+        message: t('header.saveError'),
         status: 'error'
       })
       return
     }
-  }, [saveStatus])
+  }, [saveStatus, t])
 
   useEffect(() => {
     if (!snackbar || snackbar.status === 'saving') return
@@ -530,35 +532,35 @@ export function HeaderWidget({
             variant="secondary"
           >
             <FolderOpen className="w-4 h-4" />
-            Открыть
+            {t('header.open')}
           </Button>
           <Button
             onClick={() => setIsSettingsOpen(true)}
             variant="secondary"
           >
             <Settings className="w-4 h-4" />
-            Настройки
+            {t('header.settings')}
           </Button>
           <Button
             onClick={handleClear}
             variant="secondary"
           >
             <Trash2 className="w-4 h-4" />
-            Очистить
+            {t('header.clear')}
           </Button>
           <Button
             onClick={handleSaveProject}
             variant="secondary"
           >
             <Save className="w-4 h-4" />
-            Сохранить проект
+            {t('header.saveProject')}
           </Button>
           <Button
             onClick={handleExportPng}
             variant="primary"
           >
             <Download className="w-4 h-4" />
-            Экспорт PNG
+            {t('header.exportPng')}
           </Button>
         </div>
       </motion.header>

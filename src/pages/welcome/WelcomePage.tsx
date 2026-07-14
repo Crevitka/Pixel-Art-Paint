@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import { FolderOpen, Layers3, Plus, Sparkles, X } from 'lucide-react'
-import { DEFAULT_PALETTE_PRESETS, type PixelArtProject, type RecentProjectEntry, type StartTemplate } from '@/shared/lib/project'
+import { useI18nContext } from '@/features/i18n'
+import { getDefaultPalettePresets, type PixelArtProject, type RecentProjectEntry, type StartTemplate } from '@/shared/lib/project'
 import { Button } from '@/shared/ui/Button'
 
 type WelcomePageProps = {
@@ -22,13 +23,13 @@ type CreateTemplateFormState = {
   palettePresetId: string
 }
 
-const INITIAL_TEMPLATE_FORM: CreateTemplateFormState = {
+const createInitialTemplateForm = (palettePresetId: string): CreateTemplateFormState => ({
   title: '',
   description: '',
   width: '32',
   height: '32',
-  palettePresetId: DEFAULT_PALETTE_PRESETS[0].id
-}
+  palettePresetId
+})
 
 export function WelcomePage({
   templates,
@@ -39,9 +40,13 @@ export function WelcomePage({
   onCreateFromTemplate,
   onSaveTemplate
 }: WelcomePageProps) {
+  const { locale, t } = useI18nContext()
+  const defaultPalettePresets = useMemo(() => getDefaultPalettePresets(locale), [locale])
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isCustomTemplateFormOpen, setIsCustomTemplateFormOpen] = useState(false)
-  const [templateForm, setTemplateForm] = useState<CreateTemplateFormState>(INITIAL_TEMPLATE_FORM)
+  const [templateForm, setTemplateForm] = useState<CreateTemplateFormState>(() =>
+    createInitialTemplateForm(defaultPalettePresets[0].id)
+  )
 
   const builtInTemplates = useMemo(
     () => templates.filter((template) => template.isBuiltIn),
@@ -59,7 +64,7 @@ export function WelcomePage({
   const closeCreateDialog = () => {
     setIsCreateDialogOpen(false)
     setIsCustomTemplateFormOpen(false)
-    setTemplateForm(INITIAL_TEMPLATE_FORM)
+    setTemplateForm(createInitialTemplateForm(defaultPalettePresets[0].id))
   }
 
   const handleCreateBlankProject = () => {
@@ -84,12 +89,12 @@ export function WelcomePage({
 
   const handleSaveTemplate = () => {
     const title = templateForm.title.trim()
-    const description = templateForm.description.trim() || 'Пользовательский шаблон.'
+    const description = templateForm.description.trim() || t('welcome.customTemplate.fallbackDescription')
     const width = Math.max(8, Number(templateForm.width) || 32)
     const height = Math.max(8, Number(templateForm.height) || 32)
     const palettePreset =
-      DEFAULT_PALETTE_PRESETS.find((preset) => preset.id === templateForm.palettePresetId) ??
-      DEFAULT_PALETTE_PRESETS[0]
+      defaultPalettePresets.find((preset) => preset.id === templateForm.palettePresetId) ??
+      defaultPalettePresets[0]
 
     if (!title) return
 
@@ -101,7 +106,7 @@ export function WelcomePage({
     })
 
     setIsCustomTemplateFormOpen(false)
-    setTemplateForm(INITIAL_TEMPLATE_FORM)
+    setTemplateForm(createInitialTemplateForm(defaultPalettePresets[0].id))
   }
 
   return (
@@ -119,15 +124,14 @@ export function WelcomePage({
               <div className="space-y-4">
                 <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700">
                   <Sparkles className="h-4 w-4" />
-                  Pixel Art Paint
+                  {t('welcome.badge')}
                 </div>
                 <div className="space-y-3">
                   <h1 className="max-w-2xl text-4xl font-black tracking-tight text-slate-900 lg:text-5xl">
-                    Начните новый пиксельный проект или откройте уже сохраненный.
+                    {t('welcome.title')}
                   </h1>
                   <p className="max-w-2xl text-base leading-7 text-slate-600 lg:text-lg">
-                    Стартовая страница позволяет быстро войти в редактор, выбрать шаблон при создании
-                    проекта и вернуться к недавним файлам.
+                    {t('welcome.subtitle')}
                   </p>
                 </div>
               </div>
@@ -135,19 +139,19 @@ export function WelcomePage({
               <div className="flex flex-wrap gap-3">
                 <Button onClick={openCreateDialog} variant="primary" className="px-5 py-3">
                   <Layers3 className="h-4 w-4" />
-                  Новый проект
+                  {t('welcome.newProject')}
                 </Button>
                 <Button onClick={onOpenProject} variant="secondary" className="px-5 py-3">
                   <FolderOpen className="h-4 w-4" />
-                  Открыть проект
+                  {t('welcome.openProject')}
                 </Button>
               </div>
 
               {recentProjects.length > 0 ? (
                 <div className="space-y-3">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-900">Недавние файлы</h2>
-                    <p className="text-sm text-slate-500">Быстрый повторный вход в последние проекты.</p>
+                    <h2 className="text-lg font-semibold text-slate-900">{t('welcome.recent.title')}</h2>
+                    <p className="text-sm text-slate-500">{t('welcome.recent.subtitle')}</p>
                   </div>
                   <div className="grid gap-3">
                     {recentProjects.map((recentProject) => (
@@ -175,22 +179,22 @@ export function WelcomePage({
 
             <div className="space-y-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Что нового</h2>
-                <p className="text-sm text-slate-500">Стартовый экран теперь чище, а шаблоны открываются только при создании проекта.</p>
+                <h2 className="text-lg font-semibold text-slate-900">{t('welcome.whatsNew')}</h2>
+                <p className="text-sm text-slate-500">{t('welcome.whatsNew.subtitle')}</p>
               </div>
               <div className="grid gap-3">
                 <div className="rounded-3xl border border-slate-200 bg-white/80 p-5">
-                  <div className="text-sm font-semibold text-slate-900">Готовые шаблоны</div>
+                  <div className="text-sm font-semibold text-slate-900">{t('welcome.templates.title')}</div>
                   <div className="mt-2 text-sm leading-6 text-slate-600">
-                    Выбор встроенных размеров и палитр теперь находится в окне «Новый проект».
+                    {t('welcome.templates.description')}
                   </div>
                 </div>
                 <div className="rounded-3xl border border-slate-200 bg-white/80 p-5">
-                  <div className="text-sm font-semibold text-slate-900">Пользовательские шаблоны</div>
+                  <div className="text-sm font-semibold text-slate-900">{t('welcome.customTemplates.title')}</div>
                   <div className="mt-2 text-sm leading-6 text-slate-600">
                     {customTemplates.length > 0
-                      ? `Сохранено шаблонов: ${customTemplates.length}. Их тоже можно выбрать в окне создания проекта.`
-                      : 'Пока нет своих шаблонов. Их можно создать прямо в окне нового проекта.'}
+                      ? t('welcome.customTemplates.count', { count: customTemplates.length })
+                      : t('welcome.customTemplates.empty')}
                   </div>
                 </div>
               </div>
@@ -216,17 +220,17 @@ export function WelcomePage({
             <div className="border-b border-gray-200/70 px-6 py-5 md:px-7">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800">Новый проект</h2>
+                  <h2 className="text-2xl font-bold text-gray-800">{t('welcome.dialog.title')}</h2>
                   <p className="mt-1 text-sm text-gray-500">
-                    Выберите пустой холст, готовый шаблон или сохраните свой шаблон для будущих работ.
+                    {t('welcome.dialog.description')}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={closeCreateDialog}
                   className="rounded-xl border-2 border-gray-200 bg-white p-2 text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
-                  aria-label="Закрыть окно создания проекта"
-                  title="Закрыть"
+                  aria-label={t('welcome.dialog.closeAria')}
+                  title={t('common.close')}
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -239,12 +243,12 @@ export function WelcomePage({
                   <section className="rounded-2xl border-2 border-gray-200 bg-white p-4 space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-semibold text-gray-800">Быстрый старт</h3>
-                        <p className="text-sm text-gray-500">Пустой холст без шаблона.</p>
+                        <h3 className="text-base font-semibold text-gray-800">{t('welcome.quickStart.title')}</h3>
+                        <p className="text-sm text-gray-500">{t('welcome.quickStart.description')}</p>
                       </div>
                       <Button onClick={handleCreateBlankProject} variant="primary" className="shrink-0">
                         <Layers3 className="h-4 w-4" />
-                        Пустой 32x32
+                        {t('welcome.blankProject')}
                       </Button>
                     </div>
                   </section>
@@ -252,8 +256,8 @@ export function WelcomePage({
                   <section className="rounded-2xl border-2 border-gray-200 bg-white p-4 space-y-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-semibold text-gray-800">Готовые шаблоны</h3>
-                        <p className="text-sm text-gray-500">Встроенные стартовые размеры и палитры.</p>
+                        <h3 className="text-base font-semibold text-gray-800">{t('welcome.builtInTemplates.title')}</h3>
+                        <p className="text-sm text-gray-500">{t('welcome.builtInTemplates.description')}</p>
                       </div>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
@@ -281,8 +285,8 @@ export function WelcomePage({
                   {customTemplates.length > 0 ? (
                     <section className="rounded-2xl border-2 border-gray-200 bg-white p-4 space-y-4">
                       <div>
-                        <h3 className="text-base font-semibold text-gray-800">Ваши шаблоны</h3>
-                        <p className="text-sm text-gray-500">Сохраненные размеры и палитры.</p>
+                        <h3 className="text-base font-semibold text-gray-800">{t('welcome.yourTemplates.title')}</h3>
+                        <p className="text-sm text-gray-500">{t('welcome.yourTemplates.description')}</p>
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         {customTemplates.map((template) => (
@@ -311,8 +315,8 @@ export function WelcomePage({
                 <section className="rounded-2xl border-2 border-gray-200 bg-white p-4 space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-semibold text-gray-800">Свой шаблон</h3>
-                      <p className="text-sm text-gray-500">Сохраните размер и палитру как заготовку.</p>
+                      <h3 className="text-base font-semibold text-gray-800">{t('welcome.ownTemplate.title')}</h3>
+                      <p className="text-sm text-gray-500">{t('welcome.ownTemplate.description')}</p>
                     </div>
                     <Button
                       onClick={() => setIsCustomTemplateFormOpen((currentValue) => !currentValue)}
@@ -320,29 +324,29 @@ export function WelcomePage({
                       className="shrink-0"
                     >
                       <Plus className="h-4 w-4" />
-                      {isCustomTemplateFormOpen ? 'Скрыть' : 'Создать'}
+                      {isCustomTemplateFormOpen ? t('welcome.ownTemplate.toggleHide') : t('welcome.ownTemplate.toggleShow')}
                     </Button>
                   </div>
 
                   {isCustomTemplateFormOpen ? (
                     <div className="space-y-4">
                       <label className="block space-y-2">
-                        <span className="text-sm font-medium text-gray-700">Название</span>
+                        <span className="text-sm font-medium text-gray-700">{t('common.name')}</span>
                         <input
                           type="text"
                           value={templateForm.title}
                           onChange={(event) => handleTemplateFormChange('title', event.target.value)}
-                          placeholder="Например, Персонаж 48x48"
+                          placeholder={t('welcome.template.namePlaceholder')}
                           className="w-full rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-primary-500 focus:bg-white"
                         />
                       </label>
 
                       <label className="block space-y-2">
-                        <span className="text-sm font-medium text-gray-700">Описание</span>
+                        <span className="text-sm font-medium text-gray-700">{t('common.description')}</span>
                         <textarea
                           value={templateForm.description}
                           onChange={(event) => handleTemplateFormChange('description', event.target.value)}
-                          placeholder="Коротко опишите, для чего шаблон."
+                          placeholder={t('welcome.template.descriptionPlaceholder')}
                           rows={3}
                           className="w-full resize-none rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-primary-500 focus:bg-white"
                         />
@@ -350,7 +354,7 @@ export function WelcomePage({
 
                       <div className="grid grid-cols-2 gap-3">
                         <label className="block space-y-2">
-                          <span className="text-sm font-medium text-gray-700">Ширина</span>
+                          <span className="text-sm font-medium text-gray-700">{t('common.width')}</span>
                           <input
                             type="number"
                             min="8"
@@ -361,7 +365,7 @@ export function WelcomePage({
                           />
                         </label>
                         <label className="block space-y-2">
-                          <span className="text-sm font-medium text-gray-700">Высота</span>
+                          <span className="text-sm font-medium text-gray-700">{t('common.height')}</span>
                           <input
                             type="number"
                             min="8"
@@ -374,13 +378,13 @@ export function WelcomePage({
                       </div>
 
                       <label className="block space-y-2">
-                        <span className="text-sm font-medium text-gray-700">Палитра</span>
+                        <span className="text-sm font-medium text-gray-700">{t('common.palette')}</span>
                         <select
                           value={templateForm.palettePresetId}
                           onChange={(event) => handleTemplateFormChange('palettePresetId', event.target.value)}
                           className="w-full rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-primary-500 focus:bg-white"
                         >
-                          {DEFAULT_PALETTE_PRESETS.map((preset) => (
+                          {defaultPalettePresets.map((preset) => (
                             <option key={preset.id} value={preset.id}>
                               {preset.label}
                             </option>
@@ -395,12 +399,12 @@ export function WelcomePage({
                         disabled={!templateForm.title.trim()}
                       >
                         <Plus className="h-4 w-4" />
-                        Сохранить шаблон
+                        {t('welcome.template.save')}
                       </Button>
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm leading-6 text-slate-500">
-                      Откройте форму и сохраните свою комбинацию размера и палитры.
+                      {t('welcome.template.hint')}
                     </div>
                   )}
                 </section>

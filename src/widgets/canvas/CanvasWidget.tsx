@@ -5,6 +5,7 @@ import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 
 import { useColorContext } from '@/features/colors'
 import { useCanvasContext } from '@/features/canvas'
 import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
+import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import type { CanvasSize, Layer, Tool } from '@/shared/types'
 
@@ -171,10 +172,6 @@ function hexToRgba(hex: string, alpha: number) {
   const b = colorNumber & 255
 
   return `rgba(${r},${g},${b},${alpha})`
-}
-
-function getPixelColor(pixels: Map<string, string>, x: number, y: number) {
-  return pixels.get(`${x},${y}`) ?? '#ffffff'
 }
 
 function getVisibleLayerColorAtPoint(layers: Layer[], x: number, y: number) {
@@ -975,6 +972,7 @@ function imageToPixelMap(image: HTMLImageElement, canvasSize: CanvasSize) {
 }
 
 export function CanvasWidget() {
+  const { t } = useI18nContext()
   const {
     canvasSize,
     zoom,
@@ -2613,7 +2611,7 @@ export function CanvasWidget() {
               {referenceImageUrl && isReferenceVisible ? (
                 <img
                   src={referenceImageUrl}
-                  alt="Reference"
+                  alt={t('canvas.pasteImage.previewAlt')}
                   className="pointer-events-none absolute inset-0 z-10 rounded-lg object-contain"
                   style={{
                     opacity: referenceOpacity,
@@ -2660,9 +2658,9 @@ export function CanvasWidget() {
           <div className="w-full max-w-md rounded-2xl border border-white/60 bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Вставить изображение</h3>
+                <h3 className="text-lg font-semibold text-slate-900">{t('canvas.pasteImage.title')}</h3>
                 <p className="mt-1 text-sm text-slate-600">
-                  Выберите, как добавить изображение из буфера обмена.
+                  {t('canvas.pasteImage.description')}
                 </p>
               </div>
               <button
@@ -2670,24 +2668,24 @@ export function CanvasWidget() {
                 onClick={clearPendingPastedImage}
                 className="rounded-lg px-2 py-1 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
               >
-                Отмена
+                {t('common.cancel')}
               </button>
             </div>
 
             <div className="mt-4 flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <img
                 src={pendingPastedImage.previewUrl}
-                alt="Предпросмотр вставленного изображения"
+                alt={t('canvas.pasteImage.previewAlt')}
                 className="h-20 w-20 rounded-lg border border-slate-200 bg-white object-contain"
               />
               <div className="min-w-0">
                 <div className="text-sm font-medium text-slate-900">
                   {pendingPastedImage.width > 0 && pendingPastedImage.height > 0
-                    ? `${pendingPastedImage.width}×${pendingPastedImage.height}px`
-                    : 'Определяем размер...'}
+                    ? `${pendingPastedImage.width}x${pendingPastedImage.height}px`
+                    : t('canvas.pasteImage.detectingSize')}
                 </div>
                 <p className="mt-1 text-sm text-slate-600">
-                  Как новый слой изображение будет вставлено в левый верхний угол и обрежется по размеру холста.
+                  {t('canvas.pasteImage.layerHint')}
                 </p>
               </div>
             </div>
@@ -2700,14 +2698,14 @@ export function CanvasWidget() {
                 }}
                 className="rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
               >
-                Вставить как слой
+                {t('canvas.pasteImage.asLayer')}
               </button>
               <button
                 type="button"
                 onClick={insertPendingImageAsReference}
                 className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
               >
-                Вставить как референс
+                {t('canvas.pasteImage.asReference')}
               </button>
             </div>
           </div>
@@ -2724,7 +2722,7 @@ export function CanvasWidget() {
             ref={previewCanvasRef}
             className="block h-16 w-16 rounded bg-white image-rendering-pixelated"
             style={{ imageRendering: 'pixelated' }}
-            aria-label="Мини-превью холста"
+            aria-label={t('canvas.preview.aria')}
           />
         </div>
         <div className="flex min-w-[72px] items-center gap-2 text-sm font-semibold text-gray-700">
@@ -2739,7 +2737,7 @@ export function CanvasWidget() {
           value={zoom}
           onChange={(event) => handleZoomSliderChange(Number(event.target.value))}
           className="slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200"
-          aria-label="Масштаб холста"
+          aria-label={t('canvas.zoom.aria')}
         />
       </motion.div>
     </motion.div>

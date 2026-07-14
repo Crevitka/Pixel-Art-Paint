@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
+import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import {
   clearSessionProjectHandle,
@@ -54,7 +55,7 @@ const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
   right: ['tools', 'reference', 'palette', 'brush', 'layers']
 }
 
-function createProjectFromTemplate(template: StartTemplate): PixelArtProject {
+function createProjectFromTemplate(template: StartTemplate, defaultLayerName: string): PixelArtProject {
   const templateColors = template.paletteColors.length > 0
     ? [...template.paletteColors]
     : ['#000000', '#ffffff']
@@ -66,7 +67,7 @@ function createProjectFromTemplate(template: StartTemplate): PixelArtProject {
       layers: [
         {
           id: 'layer-1',
-          name: 'Слой 1',
+          name: defaultLayerName,
           visible: true,
           pixels: []
         }
@@ -98,17 +99,18 @@ function createProjectFromTemplate(template: StartTemplate): PixelArtProject {
   }
 }
 
-function createBlankProject() {
+function createBlankProject(title: string, description: string, defaultLayerName: string) {
   return createProjectFromTemplate({
     id: 'blank-32',
-    title: 'Пустой 32x32',
-    description: 'Пустой холст для нового проекта.',
+    title,
+    description,
     size: { width: 32, height: 32 },
     paletteColors: ['#000000', '#ffffff']
-  })
+  }, defaultLayerName)
 }
 
 export function App() {
+  const { locale, t } = useI18nContext()
   const {
     canvasSize,
     layers,
@@ -131,7 +133,7 @@ export function App() {
 
   const [pathname, setPathname] = useState(() => window.location.pathname)
   const [recentProjects, setRecentProjects] = useState(() => getRecentProjects())
-  const [projectTemplates, setProjectTemplates] = useState(() => getProjectTemplates())
+  const [projectTemplates, setProjectTemplates] = useState(() => getProjectTemplates(locale))
   const [currentProjectHandle, setCurrentProjectHandle] = useState<ProjectFileHandle>(null)
   const [currentProjectName, setCurrentProjectName] = useState<string | null>(null)
   const [panelBlocks, setPanelBlocks] = useState<PanelBlocks>(INITIAL_PANEL_BLOCKS)
@@ -159,9 +161,13 @@ export function App() {
 
   useEffect(() => {
     return subscribeToProjectTemplates(() => {
-      setProjectTemplates(getProjectTemplates())
+      setProjectTemplates(getProjectTemplates(locale))
     })
-  }, [])
+  }, [locale])
+
+  useEffect(() => {
+    setProjectTemplates(getProjectTemplates(locale))
+  }, [locale])
 
   const normalizePanelBlocks = (rawPanelBlocks?: {
     left: string[]
@@ -290,15 +296,15 @@ export function App() {
   }
 
   const handleCreateProject = () => {
-    applyProject(createBlankProject(), {
-      recentName: 'Новый проект',
+    applyProject(createBlankProject(t('project.blankTitle'), t('project.blankDescription'), t('project.defaultLayer', { number: 1 })), {
+      recentName: t('project.newProjectName'),
       projectHandle: null,
       projectName: null
     })
   }
 
   const handleCreateFromTemplate = (template: StartTemplate) => {
-    applyProject(createProjectFromTemplate(template), {
+    applyProject(createProjectFromTemplate(template, t('project.defaultLayer', { number: 1 })), {
       recentName: template.title,
       projectHandle: null,
       projectName: null
@@ -307,7 +313,7 @@ export function App() {
 
   const handleSaveTemplate = (template: Omit<StartTemplate, 'id' | 'isBuiltIn'>) => {
     saveProjectTemplate(template)
-    setProjectTemplates(getProjectTemplates())
+    setProjectTemplates(getProjectTemplates(locale))
   }
 
   const handleOpenRecentProject = (project: PixelArtProject, name: string) => {

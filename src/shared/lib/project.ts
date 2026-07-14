@@ -1,4 +1,5 @@
 import type { Layer, Tool } from '@/shared/types'
+import type { AppLocale } from '@/features/i18n'
 
 export type SerializableLayer = {
   id: string
@@ -84,67 +85,93 @@ export type SessionProjectState = {
   updatedAt: string
 }
 
-export const DEFAULT_PALETTE_PRESETS: PalettePreset[] = [
-  {
-    id: 'basic',
-    label: 'Basic',
-    colors: [
-      '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
-      '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#800080',
-      '#008000', '#ffc0cb'
-    ]
-  },
-  {
-    id: 'gameboy',
-    label: 'Game Boy',
-    colors: ['#0f380f', '#306230', '#8bac0f', '#9bbc0f']
-  },
-  {
-    id: 'dawn',
-    label: 'Dawn',
-    colors: ['#1d1b2a', '#5b3558', '#b45a6f', '#f4b36a', '#f8f4e3']
-  },
-  {
-    id: 'ocean',
-    label: 'Ocean',
-    colors: ['#041c32', '#04293a', '#064663', '#3b82f6', '#a5f3fc']
-  }
-]
+export function getDefaultPalettePresets(locale: AppLocale): PalettePreset[] {
+  return [
+    {
+      id: 'basic',
+      label: locale === 'ru' ? 'Basic' : 'Basic',
+      colors: [
+        '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
+        '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#800080',
+        '#008000', '#ffc0cb'
+      ]
+    },
+    {
+      id: 'gameboy',
+      label: 'Game Boy',
+      colors: ['#0f380f', '#306230', '#8bac0f', '#9bbc0f']
+    },
+    {
+      id: 'dawn',
+      label: 'Dawn',
+      colors: ['#1d1b2a', '#5b3558', '#b45a6f', '#f4b36a', '#f8f4e3']
+    },
+    {
+      id: 'ocean',
+      label: 'Ocean',
+      colors: ['#041c32', '#04293a', '#064663', '#3b82f6', '#a5f3fc']
+    }
+  ]
+}
 
-export const DEFAULT_START_TEMPLATES: StartTemplate[] = [
-  {
-    id: 'icon-16',
-    title: 'Иконка 16x16',
-    description: 'Быстрый старт для очень маленьких пиксельных иконок.',
-    size: { width: 16, height: 16 },
-    paletteColors: [...DEFAULT_PALETTE_PRESETS[0].colors],
-    isBuiltIn: true
-  },
-  {
-    id: 'sprite-32',
-    title: 'Спрайт 32x32',
-    description: 'Подходит для персонажей, предметов и UI-элементов.',
-    size: { width: 32, height: 32 },
-    paletteColors: [...DEFAULT_PALETTE_PRESETS[2].colors],
-    isBuiltIn: true
-  },
-  {
-    id: 'scene-64',
-    title: 'Сцена 64x64',
-    description: 'Для более сложных объектов и небольших окружений.',
-    size: { width: 64, height: 64 },
-    paletteColors: [...DEFAULT_PALETTE_PRESETS[3].colors],
-    isBuiltIn: true
-  },
-  {
-    id: 'gameboy-32',
-    title: 'Game Boy 32x32',
-    description: 'Монохромный шаблон с палитрой под ретро-экран.',
-    size: { width: 32, height: 32 },
-    paletteColors: [...DEFAULT_PALETTE_PRESETS[1].colors],
-    isBuiltIn: true
+export function getDefaultStartTemplates(locale: AppLocale): StartTemplate[] {
+  const defaultPalettePresets = getDefaultPalettePresets(locale)
+
+  return [
+    {
+      id: 'icon-16',
+      title: locale === 'ru' ? 'Иконка 16x16' : 'Icon 16x16',
+      description: locale === 'ru'
+        ? 'Быстрый старт для очень маленьких пиксельных иконок.'
+        : 'A quick start for very small pixel icons.',
+      size: { width: 16, height: 16 },
+      paletteColors: [...defaultPalettePresets[0].colors],
+      isBuiltIn: true
+    },
+    {
+      id: 'sprite-32',
+      title: locale === 'ru' ? 'Спрайт 32x32' : 'Sprite 32x32',
+      description: locale === 'ru'
+        ? 'Подходит для персонажей, предметов и UI-элементов.'
+        : 'Good for characters, items, and UI elements.',
+      size: { width: 32, height: 32 },
+      paletteColors: [...defaultPalettePresets[2].colors],
+      isBuiltIn: true
+    },
+    {
+      id: 'scene-64',
+      title: locale === 'ru' ? 'Сцена 64x64' : 'Scene 64x64',
+      description: locale === 'ru'
+        ? 'Для более сложных объектов и небольших окружений.'
+        : 'For more complex objects and small environments.',
+      size: { width: 64, height: 64 },
+      paletteColors: [...defaultPalettePresets[3].colors],
+      isBuiltIn: true
+    },
+    {
+      id: 'gameboy-32',
+      title: 'Game Boy 32x32',
+      description: locale === 'ru'
+        ? 'Монохромный шаблон с палитрой под ретро-экран.'
+        : 'A monochrome template with a retro display palette.',
+      size: { width: 32, height: 32 },
+      paletteColors: [...defaultPalettePresets[1].colors],
+      isBuiltIn: true
+    }
+  ]
+}
+
+function getStoredCustomTemplates() {
+  if (typeof window === 'undefined') return [] as StartTemplate[]
+
+  try {
+    const rawValue = window.localStorage.getItem(PROJECT_TEMPLATES_STORAGE_KEY)
+    const customTemplates = rawValue ? (JSON.parse(rawValue) as StartTemplate[]) : []
+    return Array.isArray(customTemplates) ? customTemplates.filter((template) => !template.isBuiltIn) : []
+  } catch {
+    return []
   }
-]
+}
 
 export function serializeLayers(layers: Layer[]): SerializableLayer[] {
   return layers.map((layer) => ({
@@ -229,21 +256,11 @@ export function subscribeToRecentProjects(listener: () => void) {
   }
 }
 
-export function getProjectTemplates() {
-  if (typeof window === 'undefined') return [...DEFAULT_START_TEMPLATES]
-
-  try {
-    const rawValue = window.localStorage.getItem(PROJECT_TEMPLATES_STORAGE_KEY)
-    const customTemplates = rawValue ? (JSON.parse(rawValue) as StartTemplate[]) : []
-    if (!Array.isArray(customTemplates)) return [...DEFAULT_START_TEMPLATES]
-
-    return [
-      ...DEFAULT_START_TEMPLATES,
-      ...customTemplates.filter((template) => !template.isBuiltIn)
-    ]
-  } catch {
-    return [...DEFAULT_START_TEMPLATES]
-  }
+export function getProjectTemplates(locale: AppLocale) {
+  return [
+    ...getDefaultStartTemplates(locale),
+    ...getStoredCustomTemplates()
+  ]
 }
 
 export function subscribeToProjectTemplates(listener: () => void) {
@@ -258,7 +275,7 @@ export function subscribeToProjectTemplates(listener: () => void) {
 export function saveProjectTemplate(template: Omit<StartTemplate, 'id' | 'isBuiltIn'>) {
   if (typeof window === 'undefined') return
 
-  const customTemplates = getProjectTemplates().filter((item) => !item.isBuiltIn)
+  const customTemplates = getStoredCustomTemplates()
   const nextTemplate: StartTemplate = {
     ...template,
     id: `custom-template-${Date.now()}`,

@@ -30,6 +30,7 @@ import {
 import { useCanvasContext } from '@/features/canvas'
 import { useColorContext } from '@/features/colors'
 import { eventMatchesHotkey, formatHotkey, useHotkeyContext } from '@/features/hotkeys'
+import { useI18nContext } from '@/features/i18n'
 import { ToolButton, useToolContext } from '@/features/tools'
 import type { Tool } from '@/shared/types'
 
@@ -63,13 +64,13 @@ type ToolbarWidgetProps = {
 }
 
 const tools = [
-  { id: 'pencil' as const, icon: Pencil, label: 'Карандаш' },
-  { id: 'eraser' as const, icon: Eraser, label: 'Ластик' },
-  { id: 'fill' as const, icon: PaintBucket, label: 'Заливка' },
-  { id: 'selection' as const, icon: Crop, label: 'Выделение' },
-  { id: 'rectangle' as const, icon: Square, label: 'Квадрат' },
-  { id: 'ellipse' as const, icon: Circle, label: 'Круг' },
-  { id: 'eyedropper' as const, icon: Pipette, label: 'Пипетка' }
+  { id: 'pencil' as const, icon: Pencil, label: 'Pencil' },
+  { id: 'eraser' as const, icon: Eraser, label: 'Eraser' },
+  { id: 'fill' as const, icon: PaintBucket, label: 'Fill' },
+  { id: 'selection' as const, icon: Crop, label: 'Selection' },
+  { id: 'rectangle' as const, icon: Square, label: 'Rectangle' },
+  { id: 'ellipse' as const, icon: Circle, label: 'Ellipse' },
+  { id: 'eyedropper' as const, icon: Pipette, label: 'Eyedropper' }
 ]
 
 const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
@@ -118,6 +119,7 @@ export function ToolbarWidget({
   onBlockDragOver,
   onBlockDrop
 }: ToolbarWidgetProps) {
+  const { t } = useI18nContext()
   const { selectedTool, setSelectedTool, brushSize, setBrushSize } = useToolContext()
   const {
     selectedColor,
@@ -170,6 +172,10 @@ export function ToolbarWidget({
   const isPaletteEditColorPickerOpenRef = useRef(false)
 
   const isCenterPanel = panelId === 'center'
+  const localizedTools = tools.map((tool) => ({
+    ...tool,
+    label: t(`tool.${tool.id}`)
+  }))
 
   const canPanelAcceptBlock = (blockId: ToolbarBlockId) => PANEL_ACCEPTED_BLOCKS[panelId].includes(blockId)
 
@@ -440,7 +446,7 @@ export function ToolbarWidget({
       }}
       onDragEnd={onBlockDragEnd}
       className="flex cursor-grab items-center justify-between gap-3 rounded-xl border border-transparent px-1 py-1 active:cursor-grabbing"
-      title="Перетащите блок за заголовок"
+      title={t('toolbar.dragBlock')}
     >
       <div className="flex items-center gap-2 text-lg font-semibold text-gray-700">
         <GripVertical className="h-4 w-4 text-gray-400" />
@@ -514,13 +520,13 @@ export function ToolbarWidget({
               : undefined
           }
           onDragEndCapture={isCenterPanel ? onBlockDragEnd : undefined}
-          title={isCenterPanel ? 'Перетащите панель инструментов' : undefined}
+          title={isCenterPanel ? t('toolbar.dragToolsPanel') : undefined}
           transition={{ delay: 0.15 }}
         >
           {isCenterPanel ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
               {renderCenterToolsHandle()}
-              {tools.map((tool) => (
+              {localizedTools.map((tool) => (
                 <ToolButton
                   key={tool.id}
                   tool={tool.id}
@@ -534,9 +540,9 @@ export function ToolbarWidget({
             </div>
           ) : (
             <>
-              {renderHeader(blockId, <Pencil className="h-5 w-5" />, 'Инструменты')}
+              {renderHeader(blockId, <Pencil className="h-5 w-5" />, t('toolbar.tools'))}
               <div className="space-y-2">
-                {tools.map((tool) => (
+                {localizedTools.map((tool) => (
                   <ToolButton
                     key={tool.id}
                     tool={tool.id}
@@ -556,7 +562,7 @@ export function ToolbarWidget({
     if (blockId === 'reference') {
       return (
         <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.18 }}>
-          {renderHeader(blockId, <Image className="h-5 w-5" />, 'Референс')}
+          {renderHeader(blockId, <Image className="h-5 w-5" />, t('toolbar.reference'))}
           <div className="space-y-4">
             <input
               ref={referenceInputRef}
@@ -571,15 +577,15 @@ export function ToolbarWidget({
                 onClick={handleOpenReferencePicker}
                 className="flex-1 min-w-[180px] rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
               >
-                {referenceImageUrl ? 'Заменить' : 'Добавить'}
+                {referenceImageUrl ? t('toolbar.reference.replace') : t('toolbar.reference.add')}
               </button>
               <button
                 type="button"
                 onClick={() => setIsReferenceVisible(!isReferenceVisible)}
                 disabled={!referenceImageUrl}
                 className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
-                title={isReferenceVisible ? 'Скрыть референс' : 'Показать референс'}
-                aria-label={isReferenceVisible ? 'Скрыть референс' : 'Показать референс'}
+                title={isReferenceVisible ? t('toolbar.reference.hide') : t('toolbar.reference.show')}
+                aria-label={isReferenceVisible ? t('toolbar.reference.hide') : t('toolbar.reference.show')}
               >
                 {isReferenceVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
               </button>
@@ -588,15 +594,15 @@ export function ToolbarWidget({
                 onClick={handleRemoveReference}
                 disabled={!referenceImageUrl}
                 className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-red-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Удалить референс"
-                aria-label="Удалить референс"
+                title={t('toolbar.reference.delete')}
+                aria-label={t('toolbar.reference.delete')}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-gray-700">Прозрачность</span>
+                <span className="text-sm font-medium text-gray-700">{t('common.opacity')}</span>
                 <span className="min-w-[52px] text-right font-semibold text-gray-700">
                   {Math.round(referenceOpacity * 100)}%
                 </span>
@@ -614,7 +620,7 @@ export function ToolbarWidget({
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium text-gray-700">Масштаб</span>
+                <span className="text-sm font-medium text-gray-700">{t('common.scale')}</span>
                 <span className="min-w-[52px] text-right font-semibold text-gray-700">
                   {Math.round(referenceScale * 100)}%
                 </span>
@@ -638,7 +644,7 @@ export function ToolbarWidget({
     if (blockId === 'palette') {
       return (
         <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.2 }}>
-          {renderHeader(blockId, <Palette className="h-5 w-5" />, 'Палитра')}
+          {renderHeader(blockId, <Palette className="h-5 w-5" />, t('toolbar.palette'))}
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <select
@@ -656,8 +662,8 @@ export function ToolbarWidget({
                 type="button"
                 onClick={createPalettePreset}
                 className="flex h-11 shrink-0 items-center justify-center rounded-xl border-2 border-gray-200 bg-gray-50 px-3 text-gray-600 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-                title="Создать палитру из текущих цветов"
-                aria-label="Создать палитру из текущих цветов"
+                title={t('toolbar.palette.createFromCurrent')}
+                aria-label={t('toolbar.palette.createFromCurrent')}
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -716,8 +722,8 @@ export function ToolbarWidget({
                 type="button"
                 onClick={handleAddPaletteColor}
                 className="flex aspect-square w-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 text-gray-500 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-                title="Добавить цвет в палитру"
-                aria-label="Добавить цвет в палитру"
+                title={t('toolbar.palette.addColor')}
+                aria-label={t('toolbar.palette.addColor')}
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -730,7 +736,7 @@ export function ToolbarWidget({
     if (blockId === 'brush') {
       return (
         <motion.div key={blockId} {...wrapperProps} transition={{ delay: 0.25 }}>
-          {renderHeader(blockId, <Settings className="h-5 w-5" />, 'Размер кисти')}
+          {renderHeader(blockId, <Settings className="h-5 w-5" />, t('toolbar.brushSize'))}
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -751,13 +757,13 @@ export function ToolbarWidget({
         {renderHeader(
           blockId,
           <Layers className="h-5 w-5" />,
-          'Слои',
+          t('toolbar.layers'),
           <button
             type="button"
             onClick={addLayer}
             className="rounded-lg border-2 border-gray-200 bg-gray-50 p-2 text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
-            title="Добавить слой"
-            aria-label="Добавить слой"
+            title={t('toolbar.layers.add')}
+            aria-label={t('toolbar.layers.add')}
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -785,8 +791,8 @@ export function ToolbarWidget({
                 onDragStart={(event) => handleLayerDragStart(event, layer.id)}
                 onDragEnd={handleLayerDragEnd}
                 className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                title="Перетащить слой"
-                aria-label="Перетащить слой"
+                title={t('toolbar.layers.drag')}
+                aria-label={t('toolbar.layers.drag')}
               >
                 <GripVertical className="h-4 w-4" />
               </button>
@@ -815,8 +821,8 @@ export function ToolbarWidget({
                 type="button"
                 onClick={() => toggleLayerVisibility(layer.id)}
                 className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                title={layer.visible ? 'Скрыть слой' : 'Показать слой'}
-                aria-label={layer.visible ? 'Скрыть слой' : 'Показать слой'}
+                title={layer.visible ? t('toolbar.layers.hide') : t('toolbar.layers.show')}
+                aria-label={layer.visible ? t('toolbar.layers.hide') : t('toolbar.layers.show')}
               >
                 {layer.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
               </button>
@@ -825,8 +831,8 @@ export function ToolbarWidget({
                 onClick={() => removeLayer(layer.id)}
                 disabled={layers.length === 1}
                 className="rounded-md p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Удалить слой"
-                aria-label="Удалить слой"
+                title={t('toolbar.layers.delete')}
+                aria-label={t('toolbar.layers.delete')}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -838,7 +844,7 @@ export function ToolbarWidget({
   }
 
   const isEmptyDropTarget = dragOverTarget?.panelId === panelId && dragOverTarget.blockId === null
-  const emptyDropLabel = isCenterPanel ? 'Перетащите сюда инструменты' : 'Перетащите сюда блок'
+  const emptyDropLabel = isCenterPanel ? t('toolbar.empty.center') : t('toolbar.empty.side')
 
   return (
     <motion.aside

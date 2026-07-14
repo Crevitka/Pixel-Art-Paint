@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { DEFAULT_PALETTE_PRESETS } from '@/shared/lib/project'
+import { getDefaultPalettePresets, type PalettePreset } from '@/shared/lib/project'
 
 export function useColors() {
+  const defaultPalettePresets = getDefaultPalettePresets('ru')
   const [selectedColor, setSelectedColor] = useState('#000000')
   const [pickerColor, setPickerColor] = useState('#000000')
   const [palettePresets, setPalettePresets] = useState(
-    DEFAULT_PALETTE_PRESETS.map((preset) => ({ ...preset, colors: [...preset.colors] }))
+    defaultPalettePresets.map((preset: PalettePreset) => ({ ...preset, colors: [...preset.colors] }))
   )
-  const [activePalettePresetId, setActivePalettePresetId] = useState(DEFAULT_PALETTE_PRESETS[0].id)
-  const [paletteColors, setPaletteColors] = useState([...DEFAULT_PALETTE_PRESETS[0].colors])
+  const [activePalettePresetId, setActivePalettePresetId] = useState(defaultPalettePresets[0].id)
+  const [paletteColors, setPaletteColors] = useState([...defaultPalettePresets[0].colors])
 
   const applyPalettePreset = (presetId: string) => {
     const preset = palettePresets.find((item) => item.id === presetId)
@@ -22,14 +23,14 @@ export function useColors() {
 
   const createPalettePreset = () => {
     const nextPresetNumber =
-      palettePresets.filter((preset) => preset.id.startsWith('custom-')).length + 1
+      palettePresets.filter((preset: PalettePreset) => preset.id.startsWith('custom-')).length + 1
     const nextPreset = {
       id: `custom-${Date.now()}`,
       label: `Custom ${nextPresetNumber}`,
       colors: [...paletteColors]
     }
 
-    setPalettePresets((currentPresets) => [...currentPresets, nextPreset])
+    setPalettePresets((currentPresets: PalettePreset[]) => [...currentPresets, nextPreset])
     setActivePalettePresetId(nextPreset.id)
   }
 
