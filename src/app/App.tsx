@@ -9,6 +9,7 @@ import {
   getSessionProject,
   getSessionProjectHandle,
   getProjectTemplates,
+  getRecentProjectById,
   getRecentProjects,
   readProjectFile,
   saveSessionProject,
@@ -76,6 +77,7 @@ function createProjectFromTemplate(template: StartTemplate, defaultLayerName: st
       referenceImageUrl: null,
       referenceOpacity: 0.45,
       referenceScale: 1,
+      referenceOffset: { x: 0, y: 0 },
       isReferenceVisible: true,
       nextLayerNumber: 2
     },
@@ -118,6 +120,7 @@ export function App() {
     referenceImageUrl,
     referenceOpacity,
     referenceScale,
+    referenceOffset,
     isReferenceVisible,
     loadCanvasProjectState
   } = useCanvasContext()
@@ -220,6 +223,7 @@ export function App() {
       referenceImageUrl: project.canvas.referenceImageUrl,
       referenceOpacity: project.canvas.referenceOpacity,
       referenceScale: project.canvas.referenceScale,
+      referenceOffset: project.canvas.referenceOffset ?? { x: 0, y: 0 },
       isReferenceVisible: project.canvas.isReferenceVisible,
       nextLayerNumber: project.canvas.nextLayerNumber
     })
@@ -233,11 +237,10 @@ export function App() {
     setDragOverTarget(null)
 
     if (options?.recentName && options?.saveToRecent !== false) {
-      saveRecentProject({
+      void saveRecentProject({
         name: options.recentName,
         project
       })
-      setRecentProjects(getRecentProjects())
     }
 
     navigateTo('/editor')
@@ -316,11 +319,14 @@ export function App() {
     setProjectTemplates(getProjectTemplates(locale))
   }
 
-  const handleOpenRecentProject = (project: PixelArtProject, name: string) => {
+  const handleOpenRecentProject = async (recentProject: { id: string; name: string }) => {
+    const project = await getRecentProjectById(recentProject.id)
+    if (!project) return
+
     applyProject(project, {
-      recentName: name,
+      recentName: recentProject.name,
       projectHandle: null,
-      projectName: name
+      projectName: recentProject.name
     })
   }
 
@@ -333,6 +339,7 @@ export function App() {
       referenceImageUrl: await serializeReferenceImage(referenceImageUrl),
       referenceOpacity,
       referenceScale,
+      referenceOffset,
       isReferenceVisible,
       nextLayerNumber:
         layers.reduce((maxLayerNumber, layer) => {
@@ -368,6 +375,7 @@ export function App() {
     referenceImageUrl,
     referenceOpacity,
     referenceScale,
+    referenceOffset,
     selectedColor,
     selectedTool
   ])

@@ -38,6 +38,10 @@ export type PixelArtProject = {
     referenceImageUrl: string | null
     referenceOpacity: number
     referenceScale: number
+    referenceOffset: {
+      x: number
+      y: number
+    }
     isReferenceVisible: boolean
     nextLayerNumber: number
   }
@@ -58,7 +62,10 @@ export type RecentProjectEntry = {
   id: string
   name: string
   updatedAt: string
-  project: PixelArtProject
+  canvasSize: {
+    width: number
+    height: number
+  }
 }
 
 const RECENT_PROJECTS_STORAGE_KEY = 'pixel-art-paint.recent-projects'
@@ -67,8 +74,9 @@ const PROJECT_TEMPLATES_STORAGE_KEY = 'pixel-art-paint.project-templates'
 const PROJECT_TEMPLATES_EVENT = 'pixel-art-paint:project-templates-updated'
 const SESSION_PROJECT_STORAGE_KEY = 'pixel-art-paint.session-project'
 const SESSION_DB_NAME = 'pixel-art-paint-session'
-const SESSION_DB_VERSION = 1
+const SESSION_DB_VERSION = 2
 const SESSION_HANDLES_STORE = 'handles'
+const RECENT_PROJECTS_STORE = 'recent-projects'
 const SESSION_PROJECT_HANDLE_KEY = 'current-project-handle'
 const MAX_RECENT_PROJECTS = 8
 
@@ -229,9 +237,36 @@ export function getRecentProjects() {
     const rawValue = window.localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY)
     if (!rawValue) return []
 
-    const parsed = JSON.parse(rawValue) as RecentProjectEntry[]
+    const parsed = JSON.parse(rawValue) as Array<
+      RecentProjectEntry | (RecentProjectEntry & { project?: PixelArtProject })
+    >
     if (!Array.isArray(parsed)) return []
-    return parsed
+
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return []
+
+      const canvasSize =
+        'canvasSize' in entry && entry.canvasSize
+          ? entry.canvasSize
+          : 'project' in entry && entry.project
+            ? entry.project.canvas.canvasSize
+            : null
+
+      if (
+        !canvasSize ||
+        typeof canvasSize.width !== 'number' ||
+        typeof canvasSize.height !== 'number'
+      ) {
+        return []
+      }
+
+      return [{
+        id: entry.id,
+        name: entry.name,
+        updatedAt: entry.updatedAt,
+        canvasSize
+      }]
+    })
   } catch {
     return []
   }
@@ -292,25 +327,80 @@ export function saveProjectTemplate(template: Omit<StartTemplate, 'id' | 'isBuil
   emitProjectTemplatesUpdated()
 }
 
-export function saveRecentProject(entry: {
+async function saveRecentProjectRecord(id: string, project: PixelArtProject) {
+  const db = await openSessionDb()
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(RECENT_PROJECTS_STORE, 'readwrite')
+    const store = transaction.objectStore(RECENT_PROJECTS_STORE)
+    store.put({ id, project })
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+  })
+  db.close()
+}
+
+async function deleteRecentProjectRecord(id: string) {
+  const db = await openSessionDb()
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(RECENT_PROJECTS_STORE, 'readwrite')
+    const store = transaction.objectStore(RECENT_PROJECTS_STORE)
+    store.delete(id)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+  })
+  db.close()
+}
+
+export async function getRecentProjectById(id: string) {
+  if (typeof window === 'undefined') return null as PixelArtProject | null
+
+  const db = await openSessionDb()
+  const project = await new Promise<PixelArtProject | null>((resolve, reject) => {
+    const transaction = db.transaction(RECENT_PROJECTS_STORE, 'readonly')
+    const store = transaction.objectStore(RECENT_PROJECTS_STORE)
+    const request = store.get(id)
+    request.onsuccess = () => {
+      const result = request.result as { id: string; project: PixelArtProject } | undefined
+      resolve(result?.project ?? null)
+    }
+    request.onerror = () => reject(request.error)
+  })
+  db.close()
+  return project
+}
+
+export async function saveRecentProject(entry: {
   name: string
   project: PixelArtProject
 }) {
   if (typeof window === 'undefined') return
 
+  const previousProjects = getRecentProjects()
+  const replacedEntry = previousProjects.find((project) => project.name === entry.name) ?? null
   const nextEntry: RecentProjectEntry = {
     id: `${entry.name}-${Date.now()}`,
     name: entry.name,
     updatedAt: new Date().toISOString(),
-    project: entry.project
+    canvasSize: entry.project.canvas.canvasSize
   }
 
   const nextProjects = [
     nextEntry,
-    ...getRecentProjects().filter((project) => project.name !== entry.name)
+    ...previousProjects.filter((project) => project.name !== entry.name)
   ].slice(0, MAX_RECENT_PROJECTS)
 
   window.localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(nextProjects))
+
+  await saveRecentProjectRecord(nextEntry.id, entry.project)
+
+  const staleIds = [
+    ...(replacedEntry ? [replacedEntry.id] : []),
+    ...previousProjects
+      .filter((project) => !nextProjects.some((nextProject) => nextProject.id === project.id))
+      .map((project) => project.id)
+  ]
+
+  await Promise.all(staleIds.map((id) => deleteRecentProjectRecord(id)))
   emitRecentProjectsUpdated()
 }
 
@@ -347,6 +437,9 @@ function openSessionDb() {
       const db = request.result
       if (!db.objectStoreNames.contains(SESSION_HANDLES_STORE)) {
         db.createObjectStore(SESSION_HANDLES_STORE)
+      }
+      if (!db.objectStoreNames.contains(RECENT_PROJECTS_STORE)) {
+        db.createObjectStore(RECENT_PROJECTS_STORE, { keyPath: 'id' })
       }
     }
 

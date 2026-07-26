@@ -76,6 +76,7 @@ export function HeaderWidget({
     referenceImageUrl,
     referenceOpacity,
     referenceScale,
+    referenceOffset,
     isReferenceVisible,
     loadCanvasProjectState
   } = useCanvasContext()
@@ -114,6 +115,7 @@ export function HeaderWidget({
         referenceImageUrl: await serializeReferenceImage(referenceImageUrl),
         referenceOpacity,
         referenceScale,
+        referenceOffset,
         isReferenceVisible,
         nextLayerNumber: getNextLayerNumber(layers)
       },
@@ -154,6 +156,7 @@ export function HeaderWidget({
     referenceImageUrl,
     referenceOpacity,
     referenceScale,
+    referenceOffset,
     selectedColor,
     selectedTool
   ])
@@ -180,17 +183,24 @@ export function HeaderWidget({
       const writable = await handle.createWritable()
       await writable.write(projectBlob)
       await writable.close()
+
       onProjectFileChange(handle, builtProject.suggestedName)
-      saveRecentProject({
-        name: builtProject.suggestedName,
-        project: builtProject.project
-      })
       lastSavedProjectTextRef.current = builtProject.projectText
       setSaveStatus('saved')
       setSnackbar({
         message: t('header.saved'),
         status: 'saved'
       })
+
+      try {
+        await saveRecentProject({
+          name: builtProject.suggestedName,
+          project: builtProject.project
+        })
+      } catch {
+        // Recent-project persistence should not turn a successful save into a fallback download.
+      }
+
       return {
         handle,
         ...builtProject
@@ -329,7 +339,7 @@ export function HeaderWidget({
       message: t('header.saved'),
       status: 'saved'
     })
-    saveRecentProject({
+    await saveRecentProject({
       name: builtProject.suggestedName,
       project: builtProject.project
     })
@@ -406,6 +416,7 @@ export function HeaderWidget({
       referenceImageUrl: project.canvas.referenceImageUrl,
       referenceOpacity: project.canvas.referenceOpacity,
       referenceScale: project.canvas.referenceScale,
+      referenceOffset: project.canvas.referenceOffset ?? { x: 0, y: 0 },
       isReferenceVisible: project.canvas.isReferenceVisible,
       nextLayerNumber: project.canvas.nextLayerNumber
     })
@@ -417,7 +428,7 @@ export function HeaderWidget({
     setSaveStatus('idle')
     setSnackbar(null)
     onProjectFileChange(fileHandle, file.name)
-    saveRecentProject({
+    await saveRecentProject({
       name: file.name,
       project
     })

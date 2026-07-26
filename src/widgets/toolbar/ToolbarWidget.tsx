@@ -25,6 +25,7 @@ import {
   useState,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode
 } from 'react'
 import { useCanvasContext } from '@/features/canvas'
@@ -139,7 +140,9 @@ export function ToolbarWidget({
   const {
     layers,
     activeLayerId,
+    selectedLayerIds,
     setActiveLayerId,
+    selectLayer,
     addLayer,
     reorderLayer,
     removeLayer,
@@ -151,6 +154,9 @@ export function ToolbarWidget({
     setReferenceOpacity,
     referenceScale,
     setReferenceScale,
+    setReferenceOffset,
+    isReferenceMoveMode,
+    setIsReferenceMoveMode,
     isReferenceVisible,
     setIsReferenceVisible
   } = useCanvasContext()
@@ -348,6 +354,7 @@ export function ToolbarWidget({
     }
 
     setReferenceImageUrl(URL.createObjectURL(file))
+    setReferenceOffset({ x: 0, y: 0 })
     setIsReferenceVisible(true)
     event.target.value = ''
   }
@@ -386,6 +393,20 @@ export function ToolbarWidget({
     if (event.key === 'Escape') {
       cancelLayerRename()
     }
+  }
+
+  const handleLayerSelect = (event: ReactMouseEvent<HTMLButtonElement>, layerId: string) => {
+    if (event.shiftKey) {
+      selectLayer(layerId, { range: true })
+      return
+    }
+
+    if (event.metaKey || event.ctrlKey) {
+      selectLayer(layerId, { toggle: true })
+      return
+    }
+
+    setActiveLayerId(layerId)
   }
 
   const handleLayerDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
@@ -578,6 +599,20 @@ export function ToolbarWidget({
                 className="flex-1 min-w-[180px] rounded-lg border-2 border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
               >
                 {referenceImageUrl ? t('toolbar.reference.replace') : t('toolbar.reference.add')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsReferenceMoveMode(!isReferenceMoveMode)}
+                disabled={!referenceImageUrl}
+                className={`rounded-lg border-2 p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  isReferenceMoveMode
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700'
+                }`}
+                title={t('toolbar.reference.move')}
+                aria-label={t('toolbar.reference.move')}
+              >
+                <Grip className="h-4 w-4" />
               </button>
               <button
                 type="button"
@@ -775,7 +810,11 @@ export function ToolbarWidget({
               onDragOver={(event) => handleLayerDragOver(event, layer.id)}
               onDrop={(event) => handleLayerDrop(event, layer.id)}
               className={`relative flex items-center gap-2 rounded-lg border-2 px-3 py-2 transition-colors ${
-                activeLayerId === layer.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'
+                activeLayerId === layer.id
+                  ? 'border-primary-500 bg-primary-50'
+                  : selectedLayerIds.includes(layer.id)
+                    ? 'border-primary-300 bg-primary-50/60'
+                    : 'border-gray-200 bg-white'
               } ${draggingLayerId === layer.id ? 'opacity-60' : ''}`}
             >
               {layerDropTarget?.layerId === layer.id ? (
@@ -809,7 +848,7 @@ export function ToolbarWidget({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setActiveLayerId(layer.id)}
+                  onClick={(event) => handleLayerSelect(event, layer.id)}
                   onDoubleClick={() => startLayerRename(layer.id, layer.name)}
                   className="min-w-0 flex-1 truncate text-left text-sm font-medium text-gray-700"
                   title={layer.name}

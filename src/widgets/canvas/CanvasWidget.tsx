@@ -982,8 +982,11 @@ export function CanvasWidget() {
     referenceImageUrl,
     referenceOpacity,
     referenceScale,
+    referenceOffset,
+    isReferenceMoveMode,
     isReferenceVisible,
     setReferenceImageUrl,
+    setReferenceOffset,
     setMinZoom,
     setZoom,
     setIsDrawing,
@@ -1014,6 +1017,13 @@ export function CanvasWidget() {
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const referenceDragStartRef = useRef<{
+    pointerId: number
+    clientX: number
+    clientY: number
+    offsetX: number
+    offsetY: number
+  } | null>(null)
   const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null)
   const freehandPixelsRef = useRef<Map<string, string> | null>(null)
   const lineDragStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -1054,6 +1064,7 @@ export function CanvasWidget() {
   const [selectionBounds, setSelectionBounds] = useState<LayerBounds | null>(null)
   const [selectionPreviewBounds, setSelectionPreviewBounds] = useState<LayerBounds | null>(null)
   const [pendingPastedImage, setPendingPastedImage] = useState<PendingPastedImage | null>(null)
+  const [isReferenceDragging, setIsReferenceDragging] = useState(false)
 
   const pixelDisplaySize = 16
   const canvasWidth = canvasSize.width * pixelDisplaySize
@@ -1155,6 +1166,7 @@ export function CanvasWidget() {
     }
 
     setReferenceImageUrl(pendingPastedImage.previewUrl)
+    setReferenceOffset({ x: 0, y: 0 })
     pendingPastedImageUrlRef.current = null
 
     setPendingPastedImage(null)
@@ -1171,6 +1183,52 @@ export function CanvasWidget() {
     } catch {
       clearPendingPastedImage()
     }
+  }
+
+  const finishReferenceDrag = () => {
+    referenceDragStartRef.current = null
+    setIsReferenceDragging(false)
+  }
+
+  const handleReferencePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!referenceImageUrl || !isReferenceVisible || !isReferenceMoveMode) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    referenceDragStartRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      offsetX: referenceOffset.x,
+      offsetY: referenceOffset.y
+    }
+
+    setIsReferenceDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleReferencePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dragState = referenceDragStartRef.current
+    if (!dragState || dragState.pointerId !== event.pointerId) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const safeZoom = Math.max(zoom, 0.01)
+    setReferenceOffset({
+      x: dragState.offsetX + (event.clientX - dragState.clientX) / safeZoom,
+      y: dragState.offsetY + (event.clientY - dragState.clientY) / safeZoom
+    })
+  }
+
+  const handleReferencePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dragState = referenceDragStartRef.current
+    if (!dragState || dragState.pointerId !== event.pointerId) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    finishReferenceDrag()
   }
 
   useEffect(() => {
@@ -2609,18 +2667,49 @@ export function CanvasWidget() {
               }}
             >
               {referenceImageUrl && isReferenceVisible ? (
-                <img
-                  src={referenceImageUrl}
-                  alt={t('canvas.pasteImage.previewAlt')}
-                  className="pointer-events-none absolute inset-0 z-10 rounded-lg object-contain"
-                  style={{
-                    opacity: referenceOpacity,
-                    width: `${canvasWidth}px`,
-                    height: `${canvasHeight}px`,
-                    transform: `scale(${referenceScale})`,
-                    transformOrigin: 'center center'
-                  }}
-                />
+                <>
+                  <div
+                    className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                    style={{
+                      transform: `translate(${referenceOffset.x}px, ${referenceOffset.y}px)`
+                    }}
+                  >
+                    <img
+                      src={referenceImageUrl}
+                      alt={t('canvas.pasteImage.previewAlt')}
+                      className="rounded-lg object-contain"
+                      style={{
+                        opacity: referenceOpacity,
+                        width: `${canvasWidth}px`,
+                        height: `${canvasHeight}px`,
+                        transform: `scale(${referenceScale})`,
+                        transformOrigin: 'center center'
+                      }}
+                    />
+                  </div>
+                  <div
+                    className={`absolute inset-0 ${
+                      isReferenceMoveMode ? 'z-30' : 'z-[15]'
+                    } ${
+                      isReferenceMoveMode ? '' : 'pointer-events-none'
+                    }`}
+                    style={{
+                      transform: `translate(${referenceOffset.x}px, ${referenceOffset.y}px)`
+                    }}
+                    onPointerDown={handleReferencePointerDown}
+                    onPointerMove={handleReferencePointerMove}
+                    onPointerUp={handleReferencePointerUp}
+                    onPointerCancel={handleReferencePointerUp}
+                    onLostPointerCapture={finishReferenceDrag}
+                  >
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        cursor: isReferenceDragging ? 'grabbing' : 'grab'
+                      }}
+                    />
+                  </div>
+                </>
               ) : null}
               <motion.canvas
                 ref={canvasRef as React.RefObject<HTMLCanvasElement>}

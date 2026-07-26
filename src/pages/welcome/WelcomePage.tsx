@@ -2,14 +2,14 @@ import { motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
 import { FolderOpen, Layers3, Plus, Sparkles, X } from 'lucide-react'
 import { useI18nContext } from '@/features/i18n'
-import { getDefaultPalettePresets, type PixelArtProject, type RecentProjectEntry, type StartTemplate } from '@/shared/lib/project'
+import { getDefaultPalettePresets, type RecentProjectEntry, type StartTemplate } from '@/shared/lib/project'
 import { Button } from '@/shared/ui/Button'
 
 type WelcomePageProps = {
   templates: StartTemplate[]
   recentProjects: RecentProjectEntry[]
   onOpenProject: () => void
-  onOpenRecentProject: (project: PixelArtProject, name: string) => void
+  onOpenRecentProject: (entry: RecentProjectEntry) => void
   onCreateProject: () => void
   onCreateFromTemplate: (template: StartTemplate) => void
   onSaveTemplate: (template: Omit<StartTemplate, 'id' | 'isBuiltIn'>) => void
@@ -158,7 +158,7 @@ export function WelcomePage({
                       <button
                         key={recentProject.id}
                         type="button"
-                        onClick={() => onOpenRecentProject(recentProject.project, recentProject.name)}
+                        onClick={() => onOpenRecentProject(recentProject)}
                         className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/70"
                       >
                         <div className="min-w-0">
@@ -168,7 +168,7 @@ export function WelcomePage({
                           </div>
                         </div>
                         <div className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          {recentProject.project.canvas.canvasSize.width}x{recentProject.project.canvas.canvasSize.height}
+                          {recentProject.canvasSize.width}x{recentProject.canvasSize.height}
                         </div>
                       </button>
                     ))}

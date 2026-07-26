@@ -103,33 +103,91 @@ export function useCanvas() {
   const { t } = useI18nContext()
   const nextLayerNumberRef = useRef(2)
   const historyRef = useRef<CanvasHistoryEntry[]>([])
+  const selectionAnchorLayerIdRef = useRef('layer-1')
   const [canvasSize, setCanvasSizeState] = useState<CanvasSize>({ width: 32, height: 32 })
   const [zoom, setZoomState] = useState(1)
   const [minZoom, setMinZoomState] = useState(0.5)
   const [isDrawing, setIsDrawing] = useState(false)
   const [mousePosition, setMousePosition] = useState<MousePosition>({ x: 0, y: 0 })
   const [layers, setLayers] = useState<Layer[]>(() => [createLayer('layer-1', t('project.defaultLayer', { number: 1 }))])
-  const [activeLayerId, setActiveLayerId] = useState('layer-1')
+  const [activeLayerIdState, setActiveLayerIdState] = useState('layer-1')
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(['layer-1'])
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null)
   const [referenceOpacity, setReferenceOpacity] = useState(0.45)
   const [referenceScale, setReferenceScaleState] = useState(1)
+  const [referenceOffset, setReferenceOffsetState] = useState({ x: 0, y: 0 })
+  const [isReferenceMoveMode, setIsReferenceMoveMode] = useState(false)
   const [isReferenceVisible, setIsReferenceVisible] = useState(true)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? layers[0]
+  const activeLayer = layers.find((layer) => layer.id === activeLayerIdState) ?? layers[0]
   const pixels = activeLayer?.pixels ?? new Map<string, string>()
+
+  const setActiveLayerId = useCallback((layerId: string) => {
+    if (!layers.some((layer) => layer.id === layerId)) return
+
+    selectionAnchorLayerIdRef.current = layerId
+    setActiveLayerIdState(layerId)
+    setSelectedLayerIds([layerId])
+  }, [layers])
+
+  const selectLayer = useCallback((layerId: string, options?: { toggle?: boolean; range?: boolean }) => {
+    if (!layers.some((layer) => layer.id === layerId)) return
+
+    if (options?.range) {
+      const anchorLayerId = selectionAnchorLayerIdRef.current
+      const anchorIndex = layers.findIndex((layer) => layer.id === anchorLayerId)
+      const targetIndex = layers.findIndex((layer) => layer.id === layerId)
+
+      if (anchorIndex !== -1 && targetIndex !== -1) {
+        const [startIndex, endIndex] = anchorIndex < targetIndex
+          ? [anchorIndex, targetIndex]
+          : [targetIndex, anchorIndex]
+
+        setSelectedLayerIds(layers.slice(startIndex, endIndex + 1).map((layer) => layer.id))
+        setActiveLayerIdState(layerId)
+        return
+      }
+    }
+
+    if (options?.toggle) {
+      selectionAnchorLayerIdRef.current = layerId
+      setSelectedLayerIds((currentSelectedLayerIds) => {
+        if (currentSelectedLayerIds.includes(layerId)) {
+          if (currentSelectedLayerIds.length === 1) {
+            setActiveLayerIdState(layerId)
+            return currentSelectedLayerIds
+          }
+
+          const nextSelectedLayerIds = currentSelectedLayerIds.filter((id) => id !== layerId)
+          setActiveLayerIdState((currentActiveLayerId) =>
+            currentActiveLayerId === layerId ? nextSelectedLayerIds[0] : currentActiveLayerId
+          )
+          return nextSelectedLayerIds
+        }
+
+        setActiveLayerIdState(layerId)
+        return [...currentSelectedLayerIds, layerId]
+      })
+      return
+    }
+
+    selectionAnchorLayerIdRef.current = layerId
+    setActiveLayerIdState(layerId)
+    setSelectedLayerIds([layerId])
+  }, [layers])
 
   const pushHistory = useCallback(() => {
     historyRef.current.push({
       canvasSize: { ...canvasSize },
       layers: cloneLayers(layers),
-      activeLayerId,
+      activeLayerId: activeLayerIdState,
       nextLayerNumber: nextLayerNumberRef.current
     })
 
     if (historyRef.current.length > MAX_HISTORY_ENTRIES) {
       historyRef.current.shift()
     }
-  }, [activeLayerId, canvasSize, layers])
+  }, [activeLayerIdState, canvasSize, layers])
 
   const undo = useCallback(() => {
     const previousEntry = historyRef.current.pop()
@@ -137,30 +195,32 @@ export function useCanvas() {
 
     setCanvasSizeState(previousEntry.canvasSize)
     setLayers(cloneLayers(previousEntry.layers))
-    setActiveLayerId(previousEntry.activeLayerId)
+    selectionAnchorLayerIdRef.current = previousEntry.activeLayerId
+    setActiveLayerIdState(previousEntry.activeLayerId)
+    setSelectedLayerIds([previousEntry.activeLayerId])
     nextLayerNumberRef.current = previousEntry.nextLayerNumber
   }, [])
 
   const setPixels = useCallback((nextPixels: Map<string, string>) => {
     setLayers((currentLayers) =>
       currentLayers.map((layer) =>
-        layer.id === activeLayerId
+        layer.id === activeLayerIdState
           ? { ...layer, pixels: nextPixels }
           : layer
       )
     )
-  }, [activeLayerId])
+  }, [activeLayerIdState])
 
   const clearCanvas = useCallback(() => {
     pushHistory()
     setLayers((currentLayers) =>
       currentLayers.map((layer) =>
-        layer.id === activeLayerId
+        layer.id === activeLayerIdState
           ? { ...layer, pixels: new Map() }
           : layer
       )
     )
-  }, [activeLayerId, pushHistory])
+  }, [activeLayerIdState, pushHistory])
 
   const setCanvasSize = useCallback((size: CanvasSize) => {
     pushHistory()
@@ -204,6 +264,12 @@ export function useCanvas() {
     setReferenceScaleState(Math.min(4, Math.max(0.1, nextScale)))
   }, [])
 
+  const setReferenceOffset = useCallback((nextOffset: { x: number; y: number }) => {
+    const nextX = Number.isFinite(nextOffset.x) ? nextOffset.x : 0
+    const nextY = Number.isFinite(nextOffset.y) ? nextOffset.y : 0
+    setReferenceOffsetState({ x: nextX, y: nextY })
+  }, [])
+
   const addLayer = useCallback(() => {
     pushHistory()
     const nextLayerNumber = nextLayerNumberRef.current
@@ -214,7 +280,9 @@ export function useCanvas() {
       createLayer(nextId, t('project.defaultLayer', { number: nextLayerNumber })),
       ...currentLayers
     ])
-    setActiveLayerId(nextId)
+    selectionAnchorLayerIdRef.current = nextId
+    setActiveLayerIdState(nextId)
+    setSelectedLayerIds([nextId])
   }, [pushHistory])
 
   const addLayerWithPixels = useCallback((pixels: Map<string, string>, name?: string) => {
@@ -230,7 +298,9 @@ export function useCanvas() {
       },
       ...currentLayers
     ])
-    setActiveLayerId(nextId)
+    selectionAnchorLayerIdRef.current = nextId
+    setActiveLayerIdState(nextId)
+    setSelectedLayerIds([nextId])
   }, [pushHistory, t])
 
   const reorderLayer = useCallback((
@@ -268,10 +338,23 @@ export function useCanvas() {
       const nextLayers = currentLayers.filter((layer) => layer.id !== layerId)
       if (nextLayers.length === currentLayers.length) return currentLayers
 
-      setActiveLayerId((currentActiveLayerId) => {
+      setSelectedLayerIds((currentSelectedLayerIds) => {
+        const nextSelectedLayerIds = currentSelectedLayerIds.filter((id) => id !== layerId)
+        return nextSelectedLayerIds.length > 0
+          ? nextSelectedLayerIds
+          : nextLayers[0]
+            ? [nextLayers[0].id]
+            : nextSelectedLayerIds
+      })
+
+      setActiveLayerIdState((currentActiveLayerId) => {
         if (currentActiveLayerId !== layerId) return currentActiveLayerId
         return nextLayers[0]?.id ?? currentActiveLayerId
       })
+
+      if (selectionAnchorLayerIdRef.current === layerId) {
+        selectionAnchorLayerIdRef.current = nextLayers[0]?.id ?? 'layer-1'
+      }
 
       return nextLayers
     })
@@ -352,6 +435,10 @@ export function useCanvas() {
     referenceImageUrl: string | null
     referenceOpacity: number
     referenceScale: number
+    referenceOffset?: {
+      x: number
+      y: number
+    }
     isReferenceVisible: boolean
     nextLayerNumber: number
   }) => {
@@ -359,10 +446,16 @@ export function useCanvas() {
     nextLayerNumberRef.current = Math.max(2, state.nextLayerNumber)
     setCanvasSizeState(state.canvasSize)
     setLayers(cloneLayers(state.layers))
-    setActiveLayerId(state.activeLayerId)
+    selectionAnchorLayerIdRef.current = state.activeLayerId
+    setActiveLayerIdState(state.activeLayerId)
+    setSelectedLayerIds([state.activeLayerId])
     setReferenceImageUrl(state.referenceImageUrl)
     setReferenceOpacity(state.referenceOpacity)
     setReferenceScaleState(Math.min(4, Math.max(0.1, state.referenceScale)))
+    setReferenceOffsetState({
+      x: state.referenceOffset?.x ?? 0,
+      y: state.referenceOffset?.y ?? 0
+    })
     setIsReferenceVisible(state.isReferenceVisible)
   }, [])
 
@@ -374,14 +467,20 @@ export function useCanvas() {
     setZoom,
     setMinZoom,
     layers,
-    activeLayerId,
+    activeLayerId: activeLayerIdState,
+    selectedLayerIds,
     setActiveLayerId,
+    selectLayer,
     referenceImageUrl,
     setReferenceImageUrl,
     referenceOpacity,
     setReferenceOpacity,
     referenceScale,
     setReferenceScale,
+    referenceOffset,
+    setReferenceOffset,
+    isReferenceMoveMode,
+    setIsReferenceMoveMode,
     isReferenceVisible,
     setIsReferenceVisible,
     addLayer,

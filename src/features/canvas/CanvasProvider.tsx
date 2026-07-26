@@ -9,6 +9,10 @@ type CanvasProjectState = {
   referenceImageUrl: string | null
   referenceOpacity: number
   referenceScale: number
+  referenceOffset: {
+    x: number
+    y: number
+  }
   isReferenceVisible: boolean
   nextLayerNumber: number
 }
@@ -22,13 +26,22 @@ interface CanvasContextType {
   setMinZoom: (zoom: number) => void
   layers: Layer[]
   activeLayerId: string
+  selectedLayerIds: string[]
   setActiveLayerId: (layerId: string) => void
+  selectLayer: (layerId: string, options?: { toggle?: boolean; range?: boolean }) => void
   referenceImageUrl: string | null
   setReferenceImageUrl: (url: string | null) => void
   referenceOpacity: number
   setReferenceOpacity: (opacity: number) => void
   referenceScale: number
   setReferenceScale: (scale: number) => void
+  referenceOffset: {
+    x: number
+    y: number
+  }
+  setReferenceOffset: (offset: { x: number; y: number }) => void
+  isReferenceMoveMode: boolean
+  setIsReferenceMoveMode: (enabled: boolean) => void
   isReferenceVisible: boolean
   setIsReferenceVisible: (visible: boolean) => void
   addLayer: () => void
