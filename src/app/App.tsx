@@ -5,6 +5,7 @@ import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import {
   clearSessionProjectHandle,
+  deserializeAnimationFrames,
   deserializeLayers,
   getSessionProject,
   getSessionProjectHandle,
@@ -16,6 +17,7 @@ import {
   saveSessionProjectHandle,
   saveProjectTemplate,
   saveRecentProject,
+  serializeAnimationFrames,
   serializeLayers,
   serializeReferenceImage,
   subscribeToProjectTemplates,
@@ -81,6 +83,27 @@ function createProjectFromTemplate(template: StartTemplate, defaultLayerName: st
       isReferenceVisible: true,
       nextLayerNumber: 2
     },
+    animation: {
+      frames: [
+        {
+          id: 'frame-1',
+          name: 'Frame 1',
+          layers: [
+            {
+              id: 'layer-1',
+              name: defaultLayerName,
+              visible: true,
+              pixels: []
+            }
+          ],
+          activeLayerId: 'layer-1',
+          nextLayerNumber: 2
+        }
+      ],
+      activeFrameId: 'frame-1',
+      fps: 8,
+      nextFrameNumber: 2
+    },
     colors: {
       selectedColor: templateColors[0],
       pickerColor: templateColors[0],
@@ -115,6 +138,9 @@ export function App() {
   const { locale, t } = useI18nContext()
   const {
     canvasSize,
+    frames,
+    activeFrameId,
+    animationFps,
     layers,
     activeLayerId,
     referenceImageUrl,
@@ -220,6 +246,10 @@ export function App() {
       canvasSize: project.canvas.canvasSize,
       layers: deserializeLayers(project.canvas.layers),
       activeLayerId: project.canvas.activeLayerId,
+      frames: project.animation?.frames ? deserializeAnimationFrames(project.animation.frames) : undefined,
+      activeFrameId: project.animation?.activeFrameId,
+      animationFps: project.animation?.fps,
+      nextFrameNumber: project.animation?.nextFrameNumber,
       referenceImageUrl: project.canvas.referenceImageUrl,
       referenceOpacity: project.canvas.referenceOpacity,
       referenceScale: project.canvas.referenceScale,
@@ -348,6 +378,17 @@ export function App() {
           return Math.max(maxLayerNumber, Number(match[1]))
         }, 1) + 1
     },
+    animation: {
+      frames: serializeAnimationFrames(frames),
+      activeFrameId,
+      fps: animationFps,
+      nextFrameNumber:
+        frames.reduce((maxFrameNumber, frame) => {
+          const match = /^frame-(\d+)$/.exec(frame.id)
+          if (!match) return maxFrameNumber
+          return Math.max(maxFrameNumber, Number(match[1]))
+        }, 1) + 1
+    },
     colors: {
       selectedColor,
       pickerColor,
@@ -363,10 +404,13 @@ export function App() {
       brushSize
     }
   }), [
+    activeFrameId,
     activeLayerId,
     activePalettePresetId,
+    animationFps,
     brushSize,
     canvasSize,
+    frames,
     isReferenceVisible,
     layers,
     paletteColors,

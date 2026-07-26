@@ -22,3 +22,11 @@ export interface Layer {
   visible: boolean
   pixels: Map<string, string>
 }
+
+export interface AnimationFrame {
+  id: string
+  name: string
+  layers: Layer[]
+  activeLayerId: string
+  nextLayerNumber: number
+}

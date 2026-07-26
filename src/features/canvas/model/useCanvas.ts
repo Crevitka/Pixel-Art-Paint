@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react'
 import { useI18nContext } from '@/features/i18n'
-import { CanvasSize, Layer, MousePosition } from '@/shared/types'
+import { AnimationFrame, CanvasSize, Layer, MousePosition } from '@/shared/types'
 
 type CanvasHistoryEntry = {
   canvasSize: CanvasSize
-  layers: Layer[]
-  activeLayerId: string
-  nextLayerNumber: number
+  frames: AnimationFrame[]
+  activeFrameId: string
+  selectedLayerIds: string[]
+  selectionAnchorLayerId: string
+  nextFrameNumber: number
 }
 
 const MAX_HISTORY_ENTRIES = 100
@@ -18,6 +20,24 @@ function createLayer(id: string, name: string): Layer {
     visible: true,
     pixels: new Map()
   }
+}
+
+function cloneLayers(layers: Layer[]) {
+  return layers.map((layer) => ({
+    ...layer,
+    pixels: new Map(layer.pixels)
+  }))
+}
+
+function cloneFrame(frame: AnimationFrame): AnimationFrame {
+  return {
+    ...frame,
+    layers: cloneLayers(frame.layers)
+  }
+}
+
+function cloneFrames(frames: AnimationFrame[]) {
+  return frames.map(cloneFrame)
 }
 
 function translatePixels(
@@ -41,13 +61,6 @@ function translatePixels(
   })
 
   return nextPixels
-}
-
-function cloneLayers(layers: Layer[]) {
-  return layers.map((layer) => ({
-    ...layer,
-    pixels: new Map(layer.pixels)
-  }))
 }
 
 function getLayerBounds(pixels: Map<string, string>) {
@@ -99,36 +112,92 @@ function flipPixelsVertically(pixels: Map<string, string>) {
   return nextPixels
 }
 
+function getFrameNumberFromId(frameId: string) {
+  const match = /^frame-(\d+)$/.exec(frameId)
+  return match ? Number(match[1]) : 0
+}
+
 export function useCanvas() {
   const { t } = useI18nContext()
-  const nextLayerNumberRef = useRef(2)
+  const initialLayer = createLayer('layer-1', t('project.defaultLayer', { number: 1 }))
+  const initialFrame: AnimationFrame = {
+    id: 'frame-1',
+    name: t('canvas.animation.frameLabel', { number: 1 }),
+    layers: [initialLayer],
+    activeLayerId: initialLayer.id,
+    nextLayerNumber: 2
+  }
+
+  const nextFrameNumberRef = useRef(2)
   const historyRef = useRef<CanvasHistoryEntry[]>([])
-  const selectionAnchorLayerIdRef = useRef('layer-1')
+  const selectionAnchorLayerIdRef = useRef(initialLayer.id)
   const [canvasSize, setCanvasSizeState] = useState<CanvasSize>({ width: 32, height: 32 })
   const [zoom, setZoomState] = useState(1)
   const [minZoom, setMinZoomState] = useState(0.5)
   const [isDrawing, setIsDrawing] = useState(false)
   const [mousePosition, setMousePosition] = useState<MousePosition>({ x: 0, y: 0 })
-  const [layers, setLayers] = useState<Layer[]>(() => [createLayer('layer-1', t('project.defaultLayer', { number: 1 }))])
-  const [activeLayerIdState, setActiveLayerIdState] = useState('layer-1')
-  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(['layer-1'])
+  const [frames, setFrames] = useState<AnimationFrame[]>(() => [initialFrame])
+  const [activeFrameIdState, setActiveFrameIdState] = useState(initialFrame.id)
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([initialLayer.id])
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null)
   const [referenceOpacity, setReferenceOpacity] = useState(0.45)
   const [referenceScale, setReferenceScaleState] = useState(1)
   const [referenceOffset, setReferenceOffsetState] = useState({ x: 0, y: 0 })
   const [isReferenceMoveMode, setIsReferenceMoveMode] = useState(false)
   const [isReferenceVisible, setIsReferenceVisible] = useState(true)
+  const [animationFps, setAnimationFpsState] = useState(8)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  const activeFrame = frames.find((frame) => frame.id === activeFrameIdState) ?? frames[0]
+  const layers = activeFrame?.layers ?? []
+  const activeLayerIdState = activeFrame?.activeLayerId ?? layers[0]?.id ?? ''
   const activeLayer = layers.find((layer) => layer.id === activeLayerIdState) ?? layers[0]
   const pixels = activeLayer?.pixels ?? new Map<string, string>()
+
+  const pushHistory = useCallback(() => {
+    historyRef.current.push({
+      canvasSize: { ...canvasSize },
+      frames: cloneFrames(frames),
+      activeFrameId: activeFrameIdState,
+      selectedLayerIds: [...selectedLayerIds],
+      selectionAnchorLayerId: selectionAnchorLayerIdRef.current,
+      nextFrameNumber: nextFrameNumberRef.current
+    })
+
+    if (historyRef.current.length > MAX_HISTORY_ENTRIES) {
+      historyRef.current.shift()
+    }
+  }, [activeFrameIdState, canvasSize, frames, selectedLayerIds])
+
+  const updateActiveFrame = useCallback((updater: (frame: AnimationFrame) => AnimationFrame) => {
+    setFrames((currentFrames) =>
+      currentFrames.map((frame) =>
+        frame.id === activeFrameIdState
+          ? updater(frame)
+          : frame
+      )
+    )
+  }, [activeFrameIdState])
+
+  const setActiveFrameId = useCallback((frameId: string) => {
+    const nextFrame = frames.find((frame) => frame.id === frameId)
+    if (!nextFrame) return
+
+    selectionAnchorLayerIdRef.current = nextFrame.activeLayerId
+    setActiveFrameIdState(frameId)
+    setSelectedLayerIds([nextFrame.activeLayerId])
+  }, [frames])
 
   const setActiveLayerId = useCallback((layerId: string) => {
     if (!layers.some((layer) => layer.id === layerId)) return
 
     selectionAnchorLayerIdRef.current = layerId
-    setActiveLayerIdState(layerId)
+    updateActiveFrame((frame) => ({
+      ...frame,
+      activeLayerId: layerId
+    }))
     setSelectedLayerIds([layerId])
-  }, [layers])
+  }, [layers, updateActiveFrame])
 
   const selectLayer = useCallback((layerId: string, options?: { toggle?: boolean; range?: boolean }) => {
     if (!layers.some((layer) => layer.id === layerId)) return
@@ -144,7 +213,10 @@ export function useCanvas() {
           : [targetIndex, anchorIndex]
 
         setSelectedLayerIds(layers.slice(startIndex, endIndex + 1).map((layer) => layer.id))
-        setActiveLayerIdState(layerId)
+        updateActiveFrame((frame) => ({
+          ...frame,
+          activeLayerId: layerId
+        }))
         return
       }
     }
@@ -154,93 +226,95 @@ export function useCanvas() {
       setSelectedLayerIds((currentSelectedLayerIds) => {
         if (currentSelectedLayerIds.includes(layerId)) {
           if (currentSelectedLayerIds.length === 1) {
-            setActiveLayerIdState(layerId)
+            updateActiveFrame((frame) => ({
+              ...frame,
+              activeLayerId: layerId
+            }))
             return currentSelectedLayerIds
           }
 
           const nextSelectedLayerIds = currentSelectedLayerIds.filter((id) => id !== layerId)
-          setActiveLayerIdState((currentActiveLayerId) =>
-            currentActiveLayerId === layerId ? nextSelectedLayerIds[0] : currentActiveLayerId
-          )
+          updateActiveFrame((frame) => ({
+            ...frame,
+            activeLayerId: frame.activeLayerId === layerId ? nextSelectedLayerIds[0] : frame.activeLayerId
+          }))
           return nextSelectedLayerIds
         }
 
-        setActiveLayerIdState(layerId)
+        updateActiveFrame((frame) => ({
+          ...frame,
+          activeLayerId: layerId
+        }))
         return [...currentSelectedLayerIds, layerId]
       })
       return
     }
 
     selectionAnchorLayerIdRef.current = layerId
-    setActiveLayerIdState(layerId)
+    updateActiveFrame((frame) => ({
+      ...frame,
+      activeLayerId: layerId
+    }))
     setSelectedLayerIds([layerId])
-  }, [layers])
-
-  const pushHistory = useCallback(() => {
-    historyRef.current.push({
-      canvasSize: { ...canvasSize },
-      layers: cloneLayers(layers),
-      activeLayerId: activeLayerIdState,
-      nextLayerNumber: nextLayerNumberRef.current
-    })
-
-    if (historyRef.current.length > MAX_HISTORY_ENTRIES) {
-      historyRef.current.shift()
-    }
-  }, [activeLayerIdState, canvasSize, layers])
+  }, [layers, updateActiveFrame])
 
   const undo = useCallback(() => {
     const previousEntry = historyRef.current.pop()
     if (!previousEntry) return
 
     setCanvasSizeState(previousEntry.canvasSize)
-    setLayers(cloneLayers(previousEntry.layers))
-    selectionAnchorLayerIdRef.current = previousEntry.activeLayerId
-    setActiveLayerIdState(previousEntry.activeLayerId)
-    setSelectedLayerIds([previousEntry.activeLayerId])
-    nextLayerNumberRef.current = previousEntry.nextLayerNumber
+    setFrames(cloneFrames(previousEntry.frames))
+    setActiveFrameIdState(previousEntry.activeFrameId)
+    setSelectedLayerIds([...previousEntry.selectedLayerIds])
+    selectionAnchorLayerIdRef.current = previousEntry.selectionAnchorLayerId
+    nextFrameNumberRef.current = previousEntry.nextFrameNumber
   }, [])
 
   const setPixels = useCallback((nextPixels: Map<string, string>) => {
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
-        layer.id === activeLayerIdState
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
+        layer.id === frame.activeLayerId
           ? { ...layer, pixels: nextPixels }
           : layer
       )
-    )
-  }, [activeLayerIdState])
+    }))
+  }, [updateActiveFrame])
 
   const clearCanvas = useCallback(() => {
     pushHistory()
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
-        layer.id === activeLayerIdState
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
+        layer.id === frame.activeLayerId
           ? { ...layer, pixels: new Map() }
           : layer
       )
-    )
-  }, [activeLayerIdState, pushHistory])
+    }))
+  }, [pushHistory, updateActiveFrame])
 
   const setCanvasSize = useCallback((size: CanvasSize) => {
     pushHistory()
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) => {
-        const nextPixels = new Map<string, string>()
+    setFrames((currentFrames) =>
+      currentFrames.map((frame) => ({
+        ...frame,
+        layers: frame.layers.map((layer) => {
+          const nextPixels = new Map<string, string>()
 
-        layer.pixels.forEach((color, key) => {
-          const [x, y] = key.split(',').map(Number)
+          layer.pixels.forEach((color, key) => {
+            const [x, y] = key.split(',').map(Number)
 
-          if (x >= 0 && y >= 0 && x < size.width && y < size.height) {
-            nextPixels.set(key, color)
+            if (x >= 0 && y >= 0 && x < size.width && y < size.height) {
+              nextPixels.set(key, color)
+            }
+          })
+
+          return {
+            ...layer,
+            pixels: nextPixels
           }
         })
-
-        return {
-          ...layer,
-          pixels: nextPixels
-        }
-      })
+      }))
     )
 
     setCanvasSizeState(size)
@@ -270,38 +344,160 @@ export function useCanvas() {
     setReferenceOffsetState({ x: nextX, y: nextY })
   }, [])
 
-  const addLayer = useCallback(() => {
-    pushHistory()
-    const nextLayerNumber = nextLayerNumberRef.current
-    nextLayerNumberRef.current += 1
-    const nextId = `layer-${nextLayerNumber}`
+  const setAnimationFps = useCallback((nextFps: number) => {
+    setAnimationFpsState(Math.max(1, Math.min(24, Math.round(nextFps))))
+  }, [])
 
-    setLayers((currentLayers) => [
-      createLayer(nextId, t('project.defaultLayer', { number: nextLayerNumber })),
-      ...currentLayers
-    ])
-    selectionAnchorLayerIdRef.current = nextId
-    setActiveLayerIdState(nextId)
-    setSelectedLayerIds([nextId])
+  const addFrame = useCallback(() => {
+    pushHistory()
+    const nextFrameNumber = nextFrameNumberRef.current
+    nextFrameNumberRef.current += 1
+    const nextFrameId = `frame-${nextFrameNumber}`
+
+    const sourceFrame = activeFrame ?? frames[0]
+    const nextFrame: AnimationFrame = sourceFrame
+      ? {
+          id: nextFrameId,
+          name: t('canvas.animation.frameLabel', { number: nextFrameNumber }),
+          layers: cloneLayers(sourceFrame.layers),
+          activeLayerId: sourceFrame.activeLayerId,
+          nextLayerNumber: sourceFrame.nextLayerNumber
+        }
+      : {
+          id: nextFrameId,
+          name: t('canvas.animation.frameLabel', { number: nextFrameNumber }),
+          layers: [createLayer('layer-1', t('project.defaultLayer', { number: 1 }))],
+          activeLayerId: 'layer-1',
+          nextLayerNumber: 2
+        }
+
+    setFrames((currentFrames) => {
+      const sourceIndex = currentFrames.findIndex((frame) => frame.id === activeFrameIdState)
+      const nextFrames = [...currentFrames]
+      const insertIndex = sourceIndex === -1 ? currentFrames.length : sourceIndex + 1
+      nextFrames.splice(insertIndex, 0, nextFrame)
+      return nextFrames
+    })
+    selectionAnchorLayerIdRef.current = nextFrame.activeLayerId
+    setActiveFrameIdState(nextFrameId)
+    setSelectedLayerIds([nextFrame.activeLayerId])
+  }, [activeFrame, activeFrameIdState, frames, pushHistory, t])
+
+  const duplicateFrame = useCallback((frameId: string) => {
+    const sourceFrame = frames.find((frame) => frame.id === frameId)
+    if (!sourceFrame) return
+
+    pushHistory()
+    const nextFrameNumber = nextFrameNumberRef.current
+    nextFrameNumberRef.current += 1
+    const nextFrameId = `frame-${nextFrameNumber}`
+    const nextFrame: AnimationFrame = {
+      id: nextFrameId,
+      name: `${sourceFrame.name} copy`,
+      layers: cloneLayers(sourceFrame.layers),
+      activeLayerId: sourceFrame.activeLayerId,
+      nextLayerNumber: sourceFrame.nextLayerNumber
+    }
+
+    setFrames((currentFrames) => {
+      const sourceIndex = currentFrames.findIndex((frame) => frame.id === frameId)
+      const nextFrames = [...currentFrames]
+      nextFrames.splice(sourceIndex + 1, 0, nextFrame)
+      return nextFrames
+    })
+    selectionAnchorLayerIdRef.current = nextFrame.activeLayerId
+    setActiveFrameIdState(nextFrameId)
+    setSelectedLayerIds([nextFrame.activeLayerId])
+  }, [frames, pushHistory])
+
+  const removeFrame = useCallback((frameId: string) => {
+    if (frames.length === 1) return
+
+    pushHistory()
+    setFrames((currentFrames) => {
+      const sourceIndex = currentFrames.findIndex((frame) => frame.id === frameId)
+      if (sourceIndex === -1 || currentFrames.length === 1) return currentFrames
+
+      const nextFrames = currentFrames.filter((frame) => frame.id !== frameId)
+      const fallbackFrame = nextFrames[Math.max(0, sourceIndex - 1)] ?? nextFrames[0]
+
+      if (activeFrameIdState === frameId && fallbackFrame) {
+        selectionAnchorLayerIdRef.current = fallbackFrame.activeLayerId
+        setActiveFrameIdState(fallbackFrame.id)
+        setSelectedLayerIds([fallbackFrame.activeLayerId])
+      }
+
+      return nextFrames
+    })
+  }, [activeFrameIdState, frames.length, pushHistory])
+
+  const reorderFrame = useCallback((
+    frameId: string,
+    targetFrameId: string,
+    position: 'before' | 'after' = 'before'
+  ) => {
+    if (frameId === targetFrameId) return
+
+    pushHistory()
+    setFrames((currentFrames) => {
+      const sourceIndex = currentFrames.findIndex((frame) => frame.id === frameId)
+      const targetIndex = currentFrames.findIndex((frame) => frame.id === targetFrameId)
+
+      if (sourceIndex === -1 || targetIndex === -1) return currentFrames
+
+      const nextFrames = [...currentFrames]
+      const [movedFrame] = nextFrames.splice(sourceIndex, 1)
+      const nextTargetIndex = nextFrames.findIndex((frame) => frame.id === targetFrameId)
+      const insertIndex = position === 'after' ? nextTargetIndex + 1 : nextTargetIndex
+      nextFrames.splice(insertIndex, 0, movedFrame)
+      return nextFrames
+    })
   }, [pushHistory])
 
-  const addLayerWithPixels = useCallback((pixels: Map<string, string>, name?: string) => {
+  const addLayer = useCallback(() => {
     pushHistory()
-    const nextLayerNumber = nextLayerNumberRef.current
-    nextLayerNumberRef.current += 1
-    const nextId = `layer-${nextLayerNumber}`
+    updateActiveFrame((frame) => {
+      const nextLayerNumber = frame.nextLayerNumber
+      const nextId = `layer-${nextLayerNumber}`
 
-    setLayers((currentLayers) => [
-      {
-        ...createLayer(nextId, name?.trim() || t('project.defaultLayer', { number: nextLayerNumber })),
-        pixels: new Map(pixels)
-      },
-      ...currentLayers
-    ])
-    selectionAnchorLayerIdRef.current = nextId
-    setActiveLayerIdState(nextId)
-    setSelectedLayerIds([nextId])
-  }, [pushHistory, t])
+      selectionAnchorLayerIdRef.current = nextId
+      setSelectedLayerIds([nextId])
+
+      return {
+        ...frame,
+        layers: [
+          createLayer(nextId, t('project.defaultLayer', { number: nextLayerNumber })),
+          ...frame.layers
+        ],
+        activeLayerId: nextId,
+        nextLayerNumber: nextLayerNumber + 1
+      }
+    })
+  }, [pushHistory, t, updateActiveFrame])
+
+  const addLayerWithPixels = useCallback((pixelsMap: Map<string, string>, name?: string) => {
+    pushHistory()
+    updateActiveFrame((frame) => {
+      const nextLayerNumber = frame.nextLayerNumber
+      const nextId = `layer-${nextLayerNumber}`
+
+      selectionAnchorLayerIdRef.current = nextId
+      setSelectedLayerIds([nextId])
+
+      return {
+        ...frame,
+        layers: [
+          {
+            ...createLayer(nextId, name?.trim() || t('project.defaultLayer', { number: nextLayerNumber })),
+            pixels: new Map(pixelsMap)
+          },
+          ...frame.layers
+        ],
+        activeLayerId: nextId,
+        nextLayerNumber: nextLayerNumber + 1
+      }
+    })
+  }, [pushHistory, t, updateActiveFrame])
 
   const reorderLayer = useCallback((
     layerId: string,
@@ -311,85 +507,89 @@ export function useCanvas() {
     if (layerId === targetLayerId) return
 
     pushHistory()
-    setLayers((currentLayers) => {
-      const sourceIndex = currentLayers.findIndex((layer) => layer.id === layerId)
-      const targetIndex = currentLayers.findIndex((layer) => layer.id === targetLayerId)
+    updateActiveFrame((frame) => {
+      const sourceIndex = frame.layers.findIndex((layer) => layer.id === layerId)
+      const targetIndex = frame.layers.findIndex((layer) => layer.id === targetLayerId)
 
-      if (sourceIndex === -1 || targetIndex === -1) return currentLayers
+      if (sourceIndex === -1 || targetIndex === -1) return frame
 
-      const nextLayers = [...currentLayers]
+      const nextLayers = [...frame.layers]
       const [movedLayer] = nextLayers.splice(sourceIndex, 1)
       const baseTargetIndex = nextLayers.findIndex((layer) => layer.id === targetLayerId)
-
-      if (baseTargetIndex === -1) return currentLayers
-
       const insertIndex = position === 'after' ? baseTargetIndex + 1 : baseTargetIndex
       nextLayers.splice(insertIndex, 0, movedLayer)
-      return nextLayers
+
+      return {
+        ...frame,
+        layers: nextLayers
+      }
     })
-  }, [pushHistory, t])
+  }, [pushHistory, updateActiveFrame])
 
   const removeLayer = useCallback((layerId: string) => {
     if (layers.length === 1) return
-    pushHistory()
-    setLayers((currentLayers) => {
-      if (currentLayers.length === 1) return currentLayers
 
-      const nextLayers = currentLayers.filter((layer) => layer.id !== layerId)
-      if (nextLayers.length === currentLayers.length) return currentLayers
+    pushHistory()
+    updateActiveFrame((frame) => {
+      if (frame.layers.length === 1) return frame
+
+      const nextLayers = frame.layers.filter((layer) => layer.id !== layerId)
+      if (nextLayers.length === frame.layers.length) return frame
+
+      const nextActiveLayerId = frame.activeLayerId === layerId
+        ? nextLayers[0]?.id ?? frame.activeLayerId
+        : frame.activeLayerId
 
       setSelectedLayerIds((currentSelectedLayerIds) => {
         const nextSelectedLayerIds = currentSelectedLayerIds.filter((id) => id !== layerId)
-        return nextSelectedLayerIds.length > 0
-          ? nextSelectedLayerIds
-          : nextLayers[0]
-            ? [nextLayers[0].id]
-            : nextSelectedLayerIds
-      })
-
-      setActiveLayerIdState((currentActiveLayerId) => {
-        if (currentActiveLayerId !== layerId) return currentActiveLayerId
-        return nextLayers[0]?.id ?? currentActiveLayerId
+        return nextSelectedLayerIds.length > 0 ? nextSelectedLayerIds : [nextActiveLayerId]
       })
 
       if (selectionAnchorLayerIdRef.current === layerId) {
-        selectionAnchorLayerIdRef.current = nextLayers[0]?.id ?? 'layer-1'
+        selectionAnchorLayerIdRef.current = nextActiveLayerId
       }
 
-      return nextLayers
+      return {
+        ...frame,
+        layers: nextLayers,
+        activeLayerId: nextActiveLayerId
+      }
     })
-  }, [layers.length, pushHistory])
+  }, [layers.length, pushHistory, updateActiveFrame])
 
   const toggleLayerVisibility = useCallback((layerId: string) => {
     pushHistory()
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
         layer.id === layerId
           ? { ...layer, visible: !layer.visible }
           : layer
       )
-    )
-  }, [pushHistory])
+    }))
+  }, [pushHistory, updateActiveFrame])
 
   const renameLayer = useCallback((layerId: string, name: string) => {
     const trimmedName = name.trim()
     if (!trimmedName) return
 
     pushHistory()
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
         layer.id === layerId
           ? { ...layer, name: trimmedName }
           : layer
       )
-    )
-  }, [pushHistory])
+    }))
+  }, [pushHistory, updateActiveFrame])
 
   const translateLayer = useCallback((layerId: string, dx: number, dy: number) => {
     if (dx === 0 && dy === 0) return
 
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
         layer.id === layerId
           ? {
               ...layer,
@@ -397,13 +597,14 @@ export function useCanvas() {
             }
           : layer
       )
-    )
-  }, [canvasSize.height, canvasSize.width])
+    }))
+  }, [canvasSize.height, canvasSize.width, updateActiveFrame])
 
   const flipLayerHorizontal = useCallback((layerId: string) => {
     pushHistory()
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
         layer.id === layerId
           ? {
               ...layer,
@@ -411,13 +612,14 @@ export function useCanvas() {
             }
           : layer
       )
-    )
-  }, [pushHistory])
+    }))
+  }, [pushHistory, updateActiveFrame])
 
   const flipLayerVertical = useCallback((layerId: string) => {
     pushHistory()
-    setLayers((currentLayers) =>
-      currentLayers.map((layer) =>
+    updateActiveFrame((frame) => ({
+      ...frame,
+      layers: frame.layers.map((layer) =>
         layer.id === layerId
           ? {
               ...layer,
@@ -425,13 +627,17 @@ export function useCanvas() {
             }
           : layer
       )
-    )
-  }, [pushHistory])
+    }))
+  }, [pushHistory, updateActiveFrame])
 
   const loadCanvasProjectState = useCallback((state: {
     canvasSize: CanvasSize
     layers: Layer[]
     activeLayerId: string
+    frames?: AnimationFrame[]
+    activeFrameId?: string
+    animationFps?: number
+    nextFrameNumber?: number
     referenceImageUrl: string | null
     referenceOpacity: number
     referenceScale: number
@@ -443,12 +649,33 @@ export function useCanvas() {
     nextLayerNumber: number
   }) => {
     historyRef.current = []
-    nextLayerNumberRef.current = Math.max(2, state.nextLayerNumber)
+
+    const restoredFrames = state.frames && state.frames.length > 0
+      ? cloneFrames(state.frames)
+      : [{
+          id: 'frame-1',
+          name: t('canvas.animation.frameLabel', { number: 1 }),
+          layers: cloneLayers(state.layers),
+          activeLayerId: state.activeLayerId,
+          nextLayerNumber: Math.max(2, state.nextLayerNumber)
+        }]
+
+    const restoredActiveFrameId =
+      state.activeFrameId && restoredFrames.some((frame) => frame.id === state.activeFrameId)
+        ? state.activeFrameId
+        : restoredFrames[0].id
+    const restoredActiveFrame =
+      restoredFrames.find((frame) => frame.id === restoredActiveFrameId) ?? restoredFrames[0]
+
+    nextFrameNumberRef.current = Math.max(
+      state.nextFrameNumber ?? 2,
+      restoredFrames.reduce((maxFrameNumber, frame) => Math.max(maxFrameNumber, getFrameNumberFromId(frame.id)), 1) + 1
+    )
     setCanvasSizeState(state.canvasSize)
-    setLayers(cloneLayers(state.layers))
-    selectionAnchorLayerIdRef.current = state.activeLayerId
-    setActiveLayerIdState(state.activeLayerId)
-    setSelectedLayerIds([state.activeLayerId])
+    setFrames(restoredFrames)
+    setActiveFrameIdState(restoredActiveFrameId)
+    selectionAnchorLayerIdRef.current = restoredActiveFrame.activeLayerId
+    setSelectedLayerIds([restoredActiveFrame.activeLayerId])
     setReferenceImageUrl(state.referenceImageUrl)
     setReferenceOpacity(state.referenceOpacity)
     setReferenceScaleState(Math.min(4, Math.max(0.1, state.referenceScale)))
@@ -457,7 +684,8 @@ export function useCanvas() {
       y: state.referenceOffset?.y ?? 0
     })
     setIsReferenceVisible(state.isReferenceVisible)
-  }, [])
+    setAnimationFpsState(Math.max(1, Math.min(24, state.animationFps ?? 8)))
+  }, [t])
 
   return {
     canvasSize,
@@ -466,6 +694,15 @@ export function useCanvas() {
     minZoom,
     setZoom,
     setMinZoom,
+    frames,
+    activeFrameId: activeFrameIdState,
+    setActiveFrameId,
+    addFrame,
+    duplicateFrame,
+    removeFrame,
+    reorderFrame,
+    animationFps,
+    setAnimationFps,
     layers,
     activeLayerId: activeLayerIdState,
     selectedLayerIds,

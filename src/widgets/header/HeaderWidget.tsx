@@ -7,9 +7,11 @@ import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
 import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import {
+  deserializeAnimationFrames,
   deserializeLayers,
   saveRecentProject,
   readProjectFile,
+  serializeAnimationFrames,
   serializeLayers,
   serializeReferenceImage,
   type PixelArtProject
@@ -71,6 +73,9 @@ export function HeaderWidget({
   const {
     canvasSize,
     clearCanvas,
+    frames,
+    activeFrameId,
+    animationFps,
     layers,
     activeLayerId,
     referenceImageUrl,
@@ -119,6 +124,17 @@ export function HeaderWidget({
         isReferenceVisible,
         nextLayerNumber: getNextLayerNumber(layers)
       },
+      animation: {
+        frames: serializeAnimationFrames(frames),
+        activeFrameId,
+        fps: animationFps,
+        nextFrameNumber:
+          frames.reduce((maxFrameNumber, frame) => {
+            const match = /^frame-(\d+)$/.exec(frame.id)
+            if (!match) return maxFrameNumber
+            return Math.max(maxFrameNumber, Number(match[1]))
+          }, 1) + 1
+      },
       colors: {
         selectedColor,
         pickerColor,
@@ -143,11 +159,14 @@ export function HeaderWidget({
       projectText
     }
   }, [
+    activeFrameId,
     activeLayerId,
     activePalettePresetId,
+    animationFps,
     brushSize,
     canvasSize,
     currentProjectName,
+    frames,
     isReferenceVisible,
     layers,
     paletteColors,
@@ -413,6 +432,10 @@ export function HeaderWidget({
       canvasSize: project.canvas.canvasSize,
       layers: deserializeLayers(project.canvas.layers),
       activeLayerId: project.canvas.activeLayerId,
+      frames: project.animation?.frames ? deserializeAnimationFrames(project.animation.frames) : undefined,
+      activeFrameId: project.animation?.activeFrameId,
+      animationFps: project.animation?.fps,
+      nextFrameNumber: project.animation?.nextFrameNumber,
       referenceImageUrl: project.canvas.referenceImageUrl,
       referenceOpacity: project.canvas.referenceOpacity,
       referenceScale: project.canvas.referenceScale,

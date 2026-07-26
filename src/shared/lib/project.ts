@@ -1,4 +1,4 @@
-import type { Layer, Tool } from '@/shared/types'
+import type { AnimationFrame, Layer, Tool } from '@/shared/types'
 import type { AppLocale } from '@/features/i18n'
 
 export type SerializableLayer = {
@@ -12,6 +12,14 @@ export type PalettePreset = {
   id: string
   label: string
   colors: string[]
+}
+
+export type SerializableAnimationFrame = {
+  id: string
+  name: string
+  layers: SerializableLayer[]
+  activeLayerId: string
+  nextLayerNumber: number
 }
 
 export type StartTemplate = {
@@ -55,6 +63,12 @@ export type PixelArtProject = {
   tools: {
     selectedTool: Tool
     brushSize: number
+  }
+  animation?: {
+    frames: SerializableAnimationFrame[]
+    activeFrameId: string
+    fps: number
+    nextFrameNumber: number
   }
 }
 
@@ -194,6 +208,23 @@ export function deserializeLayers(layers: SerializableLayer[]): Layer[] {
   return layers.map((layer) => ({
     ...layer,
     pixels: new Map(layer.pixels)
+  }))
+}
+
+export function serializeAnimationFrames(frames: AnimationFrame[]): SerializableAnimationFrame[] {
+  return frames.map((frame) => ({
+    id: frame.id,
+    name: frame.name,
+    layers: serializeLayers(frame.layers),
+    activeLayerId: frame.activeLayerId,
+    nextLayerNumber: frame.nextLayerNumber
+  }))
+}
+
+export function deserializeAnimationFrames(frames: SerializableAnimationFrame[]): AnimationFrame[] {
+  return frames.map((frame) => ({
+    ...frame,
+    layers: deserializeLayers(frame.layers)
   }))
 }
 

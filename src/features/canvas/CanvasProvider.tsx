@@ -1,11 +1,15 @@
 import { createContext, useContext, ReactNode } from 'react'
 import { useCanvas } from './model/useCanvas'
-import { CanvasSize, Layer, MousePosition } from '@/shared/types'
+import { AnimationFrame, CanvasSize, Layer, MousePosition } from '@/shared/types'
 
 type CanvasProjectState = {
   canvasSize: CanvasSize
   layers: Layer[]
   activeLayerId: string
+  frames?: AnimationFrame[]
+  activeFrameId?: string
+  animationFps?: number
+  nextFrameNumber?: number
   referenceImageUrl: string | null
   referenceOpacity: number
   referenceScale: number
@@ -24,6 +28,15 @@ interface CanvasContextType {
   minZoom: number
   setZoom: (zoom: number) => void
   setMinZoom: (zoom: number) => void
+  frames: AnimationFrame[]
+  activeFrameId: string
+  setActiveFrameId: (frameId: string) => void
+  addFrame: () => void
+  duplicateFrame: (frameId: string) => void
+  removeFrame: (frameId: string) => void
+  reorderFrame: (frameId: string, targetFrameId: string, position?: 'before' | 'after') => void
+  animationFps: number
+  setAnimationFps: (fps: number) => void
   layers: Layer[]
   activeLayerId: string
   selectedLayerIds: string[]

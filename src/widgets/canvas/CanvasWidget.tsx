@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
-import { MousePointer } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { ChevronDown, ChevronLeft, ChevronRight, Copy, Film, Layers2, MousePointer, Pause, Play, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { TransformComponent, TransformWrapper, type ReactZoomPanPinchRef } from 'react-zoom-pan-pinch'
 import { useColorContext } from '@/features/colors'
@@ -191,6 +191,83 @@ function rgbaToHex(r: number, g: number, b: number) {
 
 function blendChannelOverWhite(channel: number, alpha: number) {
   return Math.round(channel * alpha + 255 * (1 - alpha))
+}
+
+function renderPixelPreview(
+  ctx: CanvasRenderingContext2D,
+  canvasSize: CanvasSize,
+  layers: Layer[],
+  previewSize: number
+) {
+  ctx.clearRect(0, 0, previewSize, previewSize)
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, previewSize, previewSize)
+
+  const scale = Math.min(previewSize / canvasSize.width, previewSize / canvasSize.height)
+  const offsetX = (previewSize - canvasSize.width * scale) / 2
+  const offsetY = (previewSize - canvasSize.height * scale) / 2
+
+  ctx.strokeStyle = '#e2e8f0'
+  ctx.lineWidth = 1
+  ctx.strokeRect(offsetX, offsetY, canvasSize.width * scale, canvasSize.height * scale)
+
+  layers.forEach((layer) => {
+    layer.pixels.forEach((color, key) => {
+      const [x, y] = key.split(',').map(Number)
+      ctx.fillStyle = color
+      ctx.fillRect(offsetX + x * scale, offsetY + y * scale, Math.max(scale, 1), Math.max(scale, 1))
+    })
+  })
+}
+
+type FrameThumbnailProps = {
+  canvasSize: CanvasSize
+  layers: Layer[]
+  index: number
+  isActive: boolean
+  onClick: () => void
+}
+
+function FrameThumbnail({ canvasSize, layers, index, isActive, onClick }: FrameThumbnailProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const previewSize = 72
+    canvas.width = previewSize
+    canvas.height = previewSize
+
+    renderPixelPreview(
+      ctx,
+      canvasSize,
+      layers.filter((layer) => layer.visible).slice().reverse(),
+      previewSize
+    )
+  }, [canvasSize, layers])
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-[92px] shrink-0 flex-col items-center gap-2 rounded-xl border p-2 transition ${
+        isActive
+          ? 'border-primary-500 bg-primary-50 text-primary-700'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-primary-300 hover:text-primary-700'
+      }`}
+    >
+      <canvas
+        ref={canvasRef}
+        className="block h-[58px] w-[58px] rounded border border-gray-200 bg-white image-rendering-pixelated"
+        style={{ imageRendering: 'pixelated' }}
+      />
+      <span className="text-xs font-medium">{index + 1}</span>
+    </button>
+  )
 }
 
 function isEditableElement(target: EventTarget | null) {
@@ -977,6 +1054,15 @@ export function CanvasWidget() {
     canvasSize,
     zoom,
     minZoom,
+    frames,
+    activeFrameId,
+    setActiveFrameId,
+    addFrame,
+    duplicateFrame,
+    removeFrame,
+    reorderFrame,
+    animationFps,
+    setAnimationFps,
     layers,
     activeLayerId,
     referenceImageUrl,
@@ -1031,6 +1117,12 @@ export function CanvasWidget() {
   const shapeDragStartRef = useRef<{ x: number; y: number } | null>(null)
   const shapeBasePixelsRef = useRef<Map<string, string> | null>(null)
   const minZoomCenterFrameRef = useRef<number | null>(null)
+  const minZoomCenterTimeoutRef = useRef<number | null>(null)
+  const spacePanUsedRef = useRef(false)
+  const spacePressedRef = useRef(false)
+  const spacePointerPanPointRef = useRef<{ x: number; y: number } | null>(null)
+  const trackpadPanStopTimeoutRef = useRef<number | null>(null)
+  const spaceScrollAnchorRef = useRef({ x: 0, y: 0 })
   const previousCanvasSizeRef = useRef(canvasSize)
   const previousContainerSizeRef = useRef<{ width: number; height: number } | null>(null)
   const pendingPastedImageUrlRef = useRef<string | null>(null)
@@ -1051,6 +1143,7 @@ export function CanvasWidget() {
   const [isSelecting, setIsSelecting] = useState(false)
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const isPanningRef = useRef(false)
   const [isAltEyedropperPressed, setIsAltEyedropperPressed] = useState(false)
   const [layerDragOffset, setLayerDragOffset] = useState({ x: 0, y: 0 })
   const [isMoveModifierPressed, setIsMoveModifierPressed] = useState(false)
@@ -1065,11 +1158,26 @@ export function CanvasWidget() {
   const [selectionPreviewBounds, setSelectionPreviewBounds] = useState<LayerBounds | null>(null)
   const [pendingPastedImage, setPendingPastedImage] = useState<PendingPastedImage | null>(null)
   const [isReferenceDragging, setIsReferenceDragging] = useState(false)
+  const [isAnimationPlaying, setIsAnimationPlaying] = useState(false)
+  const [animationFrameIndex, setAnimationFrameIndex] = useState(0)
+  const [isOnionSkinEnabled, setIsOnionSkinEnabled] = useState(false)
+  const [isAnimationPanelCollapsed, setIsAnimationPanelCollapsed] = useState(true)
 
   const pixelDisplaySize = 16
   const canvasWidth = canvasSize.width * pixelDisplaySize
   const canvasHeight = canvasSize.height * pixelDisplaySize
   const activeLayer = layers.find((layer) => layer.id === activeLayerId)
+  const activeFrameIndex = Math.max(0, frames.findIndex((frame) => frame.id === activeFrameId))
+  const activeAnimationFrame = frames[animationFrameIndex] ?? frames[activeFrameIndex] ?? null
+  const displayedLayers = isAnimationPlaying
+    ? (activeAnimationFrame?.layers ?? [])
+    : layers
+  const previousOnionFrame = !isAnimationPlaying && isOnionSkinEnabled && activeFrameIndex > 0
+    ? frames[activeFrameIndex - 1]
+    : null
+  const nextOnionFrame = !isAnimationPlaying && isOnionSkinEnabled && activeFrameIndex < frames.length - 1
+    ? frames[activeFrameIndex + 1]
+    : null
   const activeLayerBounds = getLayerBounds(activeLayer?.pixels ?? new Map())
   const previewBounds = isLayerRotating
     ? rotatePreviewBounds
@@ -1079,18 +1187,43 @@ export function CanvasWidget() {
         ? translateBounds(activeLayerBounds, layerDragOffset.x, layerDragOffset.y)
         : activeLayerBounds
   const shouldShowTransformBox = Boolean(
-    selectedTool !== 'selection' && (isMoveModifierPressed || isLayerDragging || isLayerScaling || isLayerRotating) && previewBounds
+    !isAnimationPlaying &&
+    selectedTool !== 'selection' &&
+    (isMoveModifierPressed || isLayerDragging || isLayerScaling || isLayerRotating) &&
+    previewBounds
   )
   const activeSelectionBounds = isSelecting ? selectionPreviewBounds : selectionBounds
+  const startPanning = () => {
+    if (isPanningRef.current) return
+    isPanningRef.current = true
+    setIsPanning(true)
+  }
+
+  const stopPanning = () => {
+    if (!isPanningRef.current) return
+    isPanningRef.current = false
+    setIsPanning(false)
+  }
+
   const isTemporaryEyedropperActive =
     isAltEyedropperPressed && selectedTool !== 'selection' && !isLayerDragging && !isLayerScaling && !isLayerRotating
   const effectiveHoverTool = isTemporaryEyedropperActive ? 'eyedropper' : selectedTool
 
   const showEraserOutline = selectedTool === 'eraser' || stylusEraserActive
   const showBrushOutline =
-    selectedTool === 'pencil' && !stylusEraserActive && !isLayerDragging && !isLayerScaling && !isLayerRotating
+    !isAnimationPlaying &&
+    selectedTool === 'pencil' &&
+    !stylusEraserActive &&
+    !isLayerDragging &&
+    !isLayerScaling &&
+    !isLayerRotating
   const showEyedropperOutline =
-    effectiveHoverTool === 'eyedropper' && !stylusEraserActive && !isLayerDragging && !isLayerScaling && !isLayerRotating
+    !isAnimationPlaying &&
+    effectiveHoverTool === 'eyedropper' &&
+    !stylusEraserActive &&
+    !isLayerDragging &&
+    !isLayerScaling &&
+    !isLayerRotating
 
   const eraserOutlineKey = showEraserOutline ? `${mousePosition.x},${mousePosition.y}` : ''
   const brushOutlineKey = showBrushOutline ? `${mousePosition.x},${mousePosition.y},${selectedColor}` : ''
@@ -1256,6 +1389,46 @@ export function CanvasWidget() {
     const container = containerRef.current
     if (!container) return
 
+    const syncSpaceScrollAnchor = () => {
+      spaceScrollAnchorRef.current = {
+        x: window.scrollX,
+        y: window.scrollY
+      }
+    }
+
+    const handleDirectScrollPan = () => {
+      const transform = transformRef.current
+      if (!transform) return
+      if (!spacePressedRef.current) {
+        syncSpaceScrollAnchor()
+        return
+      }
+
+      const deltaX = window.scrollX - spaceScrollAnchorRef.current.x
+      const deltaY = window.scrollY - spaceScrollAnchorRef.current.y
+      if (deltaX === 0 && deltaY === 0) return
+
+      spacePanUsedRef.current = true
+      startPanning()
+      transform.setTransform(
+        transform.state.positionX - deltaX,
+        transform.state.positionY - deltaY,
+        transform.state.scale,
+        0
+      )
+
+      window.scrollTo(spaceScrollAnchorRef.current.x, spaceScrollAnchorRef.current.y)
+
+      if (trackpadPanStopTimeoutRef.current !== null) {
+        window.clearTimeout(trackpadPanStopTimeoutRef.current)
+      }
+
+      trackpadPanStopTimeoutRef.current = window.setTimeout(() => {
+        stopPanning()
+        trackpadPanStopTimeoutRef.current = null
+      }, 80)
+    }
+
     const preventGestureZoom = (event: Event) => {
       event.preventDefault()
     }
@@ -1272,6 +1445,17 @@ export function CanvasWidget() {
     container.addEventListener('gesturestart', preventGestureZoom as EventListener, { passive: false })
     container.addEventListener('gesturechange', preventGestureZoom as EventListener, { passive: false })
     container.addEventListener('gestureend', preventGestureZoom as EventListener, { passive: false })
+    container.addEventListener('wheel', handleDirectTrackpadPan, { passive: false, capture: true })
+    container.addEventListener('mousewheel', handleDirectTrackpadPan as EventListener, {
+      passive: false,
+      capture: true
+    })
+    window.addEventListener('wheel', handleDirectTrackpadPan, { passive: false, capture: true })
+    window.addEventListener('mousewheel', handleDirectTrackpadPan as EventListener, {
+      passive: false,
+      capture: true
+    })
+    window.addEventListener('scroll', handleDirectScrollPan, { passive: true, capture: true })
     window.addEventListener('wheel', preventBrowserWheelZoom, { passive: false, capture: true })
     window.addEventListener('wheel', handleDirectWheelZoom, { passive: false, capture: true })
 
@@ -1279,8 +1463,18 @@ export function CanvasWidget() {
       container.removeEventListener('gesturestart', preventGestureZoom as EventListener)
       container.removeEventListener('gesturechange', preventGestureZoom as EventListener)
       container.removeEventListener('gestureend', preventGestureZoom as EventListener)
+      container.removeEventListener('wheel', handleDirectTrackpadPan, true)
+      container.removeEventListener('mousewheel', handleDirectTrackpadPan as EventListener, true)
+      window.removeEventListener('wheel', handleDirectTrackpadPan, true)
+      window.removeEventListener('mousewheel', handleDirectTrackpadPan as EventListener, true)
+      window.removeEventListener('scroll', handleDirectScrollPan, true)
       window.removeEventListener('wheel', preventBrowserWheelZoom, true)
       window.removeEventListener('wheel', handleDirectWheelZoom, true)
+
+      if (trackpadPanStopTimeoutRef.current !== null) {
+        window.clearTimeout(trackpadPanStopTimeoutRef.current)
+        trackpadPanStopTimeoutRef.current = null
+      }
     }
   }, [minZoom])
 
@@ -1351,17 +1545,24 @@ export function CanvasWidget() {
     if (!transform) return
     if (!container) return
 
-    if (zoom <= minZoom + 0.001) {
+    if (zoom <= minZoom + 0.00001 && !isPanning) {
       if (minZoomCenterFrameRef.current !== null) {
         cancelAnimationFrame(minZoomCenterFrameRef.current)
       }
 
-      minZoomCenterFrameRef.current = requestAnimationFrame(() => {
-        const centeredX = (container.clientWidth - canvasWidth * minZoom) / 2
-        const centeredY = (container.clientHeight - canvasHeight * minZoom) / 2
-        transform.setTransform(centeredX, centeredY, minZoom, 0)
-        minZoomCenterFrameRef.current = null
-      })
+      if (minZoomCenterTimeoutRef.current !== null) {
+        window.clearTimeout(minZoomCenterTimeoutRef.current)
+      }
+
+      minZoomCenterTimeoutRef.current = window.setTimeout(() => {
+        minZoomCenterFrameRef.current = requestAnimationFrame(() => {
+          const centeredX = (container.clientWidth - canvasWidth * minZoom) / 2
+          const centeredY = (container.clientHeight - canvasHeight * minZoom) / 2
+          transform.setTransform(centeredX, centeredY, minZoom, 180)
+          minZoomCenterFrameRef.current = null
+        })
+        minZoomCenterTimeoutRef.current = null
+      }, 240)
     }
 
     return () => {
@@ -1369,8 +1570,13 @@ export function CanvasWidget() {
         cancelAnimationFrame(minZoomCenterFrameRef.current)
         minZoomCenterFrameRef.current = null
       }
+
+      if (minZoomCenterTimeoutRef.current !== null) {
+        window.clearTimeout(minZoomCenterTimeoutRef.current)
+        minZoomCenterTimeoutRef.current = null
+      }
     }
-  }, [canvasHeight, canvasWidth, minZoom, zoom])
+  }, [canvasHeight, canvasWidth, isPanning, minZoom, zoom])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1378,9 +1584,17 @@ export function CanvasWidget() {
         event.preventDefault()
       }
 
-      if (event.code === 'Space' && !event.repeat) {
-        if (!isEditableElement(document.activeElement)) {
-          event.preventDefault()
+      if (event.code === 'Space' && !isEditableElement(document.activeElement)) {
+        event.preventDefault()
+
+        if (!spacePressedRef.current) {
+          spacePanUsedRef.current = false
+          spacePressedRef.current = true
+          spacePointerPanPointRef.current = null
+          spaceScrollAnchorRef.current = {
+            x: window.scrollX,
+            y: window.scrollY
+          }
           setIsSpacePressed(true)
         }
       }
@@ -1427,6 +1641,22 @@ export function CanvasWidget() {
         setIsSelecting(false)
       }
 
+      if (!isEditableElement(event.target) && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        if (event.key === 'ArrowLeft' && activeFrameIndex > 0) {
+          event.preventDefault()
+          setIsAnimationPlaying(false)
+          setActiveFrameId(frames[activeFrameIndex - 1].id)
+          return
+        }
+
+        if (event.key === 'ArrowRight' && activeFrameIndex < frames.length - 1) {
+          event.preventDefault()
+          setIsAnimationPlaying(false)
+          setActiveFrameId(frames[activeFrameIndex + 1].id)
+          return
+        }
+      }
+
       if (event.key === 'Control') {
         setIsMoveModifierPressed(true)
       }
@@ -1442,8 +1672,26 @@ export function CanvasWidget() {
       }
 
       if (event.code === 'Space') {
+        const shouldToggleAnimation =
+          !spacePanUsedRef.current &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          !isEditableElement(event.target)
+
         setIsSpacePressed(false)
-        setIsPanning(false)
+        stopPanning()
+        spacePanUsedRef.current = false
+        spacePressedRef.current = false
+        spacePointerPanPointRef.current = null
+        spaceScrollAnchorRef.current = {
+          x: window.scrollX,
+          y: window.scrollY
+        }
+
+        if (shouldToggleAnimation) {
+          setIsAnimationPlaying((currentValue) => !currentValue)
+        }
       }
 
       if (event.key === 'Control') {
@@ -1461,16 +1709,23 @@ export function CanvasWidget() {
       setIsAltEyedropperPressed(false)
       setHoveredHandle(null)
       setIsSpacePressed(false)
-      setIsPanning(false)
+      stopPanning()
+      spacePanUsedRef.current = false
+      spacePressedRef.current = false
+      spacePointerPanPointRef.current = null
+      spaceScrollAnchorRef.current = {
+        x: window.scrollX,
+        y: window.scrollY
+      }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keyup', handleKeyUp, true)
     window.addEventListener('blur', handleWindowBlur)
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('keyup', handleKeyUp, true)
       window.removeEventListener('blur', handleWindowBlur)
     }
   }, [
@@ -1486,6 +1741,9 @@ export function CanvasWidget() {
     hotkeys.cutSelection,
     hotkeys.undo,
     activeLayerId,
+    activeFrameIndex,
+    frames,
+    setActiveFrameId,
     undo
   ])
 
@@ -1567,11 +1825,20 @@ export function CanvasWidget() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     drawGrid(ctx, canvas.width, canvas.height, pixelDisplaySize)
+    if (!isAnimationPlaying && isOnionSkinEnabled) {
+      drawFrameGhost(ctx, previousOnionFrame, pixelDisplaySize, 0.18)
+      drawFrameGhost(ctx, nextOnionFrame, pixelDisplaySize, 0.1)
+    }
 
-    layers
+    displayedLayers
       .filter((layer) => layer.visible)
       .reverse()
       .forEach((layer) => {
+        if (isAnimationPlaying) {
+          drawPixels(ctx, layer.pixels, pixelDisplaySize)
+          return
+        }
+
         if (layer.id === activeLayerId && isLayerRotating && rotatePreviewPixels) {
           drawPixels(ctx, rotatePreviewPixels, pixelDisplaySize)
           return
@@ -1593,12 +1860,16 @@ export function CanvasWidget() {
   }, [
     activeLayerId,
     canvasRef,
+    displayedLayers,
+    isAnimationPlaying,
+    isOnionSkinEnabled,
     isLayerDragging,
     isLayerRotating,
     isLayerScaling,
     layerDragOffset.x,
     layerDragOffset.y,
-    layers,
+    nextOnionFrame,
+    previousOnionFrame,
     rotatePreviewPixels,
     scalePreviewPixels,
   ])
@@ -1688,31 +1959,53 @@ export function CanvasWidget() {
     const previewSize = 96
     previewCanvas.width = previewSize
     previewCanvas.height = previewSize
-
-    ctx.clearRect(0, 0, previewSize, previewSize)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, previewSize, previewSize)
-
-    const scale = Math.min(previewSize / canvasSize.width, previewSize / canvasSize.height)
-    const offsetX = (previewSize - canvasSize.width * scale) / 2
-    const offsetY = (previewSize - canvasSize.height * scale) / 2
-
-    ctx.strokeStyle = '#e2e8f0'
-    ctx.lineWidth = 1
-    ctx.strokeRect(offsetX, offsetY, canvasSize.width * scale, canvasSize.height * scale)
-
-    layers
-      .filter((layer) => layer.visible)
-      .slice()
-      .reverse()
-      .forEach((layer) => {
-        layer.pixels.forEach((color, key) => {
-          const [x, y] = key.split(',').map(Number)
-          ctx.fillStyle = color
-          ctx.fillRect(offsetX + x * scale, offsetY + y * scale, Math.max(scale, 1), Math.max(scale, 1))
-        })
-      })
+    renderPixelPreview(
+      ctx,
+      canvasSize,
+      layers
+        .filter((layer) => layer.visible)
+        .slice()
+        .reverse(),
+      previewSize
+    )
   }, [canvasSize.height, canvasSize.width, layers])
+
+  useEffect(() => {
+    if (frames.length === 0) {
+      setAnimationFrameIndex(0)
+      setIsAnimationPlaying(false)
+      return
+    }
+
+    setAnimationFrameIndex((currentFrameIndex) => Math.min(currentFrameIndex, Math.max(frames.length - 1, 0)))
+  }, [frames.length])
+
+  useEffect(() => {
+    if (isAnimationPlaying) return
+    setAnimationFrameIndex(activeFrameIndex)
+  }, [activeFrameIndex, isAnimationPlaying])
+
+  useEffect(() => {
+    if (!isAnimationPlaying) return
+    if (frames.length <= 1) return
+
+    const intervalId = window.setInterval(() => {
+      setAnimationFrameIndex((currentFrameIndex) => (currentFrameIndex + 1) % frames.length)
+    }, Math.max(1000 / animationFps, 50))
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [animationFps, frames.length, isAnimationPlaying])
+
+  useEffect(() => {
+    if (!isAnimationPlaying) return
+
+    const frame = frames[animationFrameIndex]
+    if (!frame || frame.id === activeFrameId) return
+
+    setActiveFrameId(frame.id)
+  }, [activeFrameId, animationFrameIndex, frames, isAnimationPlaying, setActiveFrameId])
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number, pixelSize: number) => {
     ctx.strokeStyle = '#e2e8f0'
@@ -1739,6 +2032,26 @@ export function CanvasWidget() {
       ctx.fillStyle = color
       ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize)
     })
+  }
+
+  const drawFrameGhost = (
+    ctx: CanvasRenderingContext2D,
+    frame: typeof frames[number] | null,
+    pixelSize: number,
+    alpha: number
+  ) => {
+    if (!frame) return
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    frame.layers
+      .filter((layer) => layer.visible)
+      .slice()
+      .reverse()
+      .forEach((layer) => {
+        drawPixels(ctx, layer.pixels, pixelSize)
+      })
+    ctx.restore()
   }
 
   const drawPixelsWithOffset = (
@@ -1800,7 +2113,7 @@ export function CanvasWidget() {
   }
 
   const resetPan = () => {
-    setIsPanning(false)
+    stopPanning()
   }
 
   const getSnappedRotationAngle = (angleDegrees: number, snapToFiveDegrees: boolean) => {
@@ -2001,6 +2314,33 @@ export function CanvasWidget() {
       event.stopPropagation()
     }
 
+    if (spacePressedRef.current && activePointerIdRef.current === null && event.buttons === 0) {
+      const transform = transformRef.current
+      const previousPoint = spacePointerPanPointRef.current
+      const nextPoint = { x: event.clientX, y: event.clientY }
+
+      if (previousPoint && transform) {
+        const deltaX = nextPoint.x - previousPoint.x
+        const deltaY = nextPoint.y - previousPoint.y
+
+        if (deltaX !== 0 || deltaY !== 0) {
+          spacePanUsedRef.current = true
+          startPanning()
+          transform.setTransform(
+            transform.state.positionX + deltaX,
+            transform.state.positionY + deltaY,
+            transform.state.scale,
+            0
+          )
+        }
+      }
+
+      spacePointerPanPointRef.current = nextPoint
+      return
+    }
+
+    spacePointerPanPointRef.current = null
+
     const coords = getPixelCoordinates(event)
     const canvasPoint = getCanvasCoordinates(event)
     setMousePosition(coords)
@@ -2173,6 +2513,7 @@ export function CanvasWidget() {
 
   const handleLostPointerCapture = () => {
     activePointerIdRef.current = null
+    spacePointerPanPointRef.current = null
     resetLayerTransform()
     resetSelectionDrag()
     resetLineDrag()
@@ -2184,6 +2525,8 @@ export function CanvasWidget() {
   }
 
   const handlePointerLeave = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    spacePointerPanPointRef.current = null
+
     if (event.pointerType === 'pen') {
       setStylusEraserActive(false)
     }
@@ -2546,6 +2889,7 @@ export function CanvasWidget() {
 
     const targetInsideCanvas = event.target instanceof Node && container.contains(event.target)
     if (!targetInsideCanvas && !isPointerOverCanvasRef.current) return
+    if (event.defaultPrevented || spacePressedRef.current) return
     if (event.ctrlKey || event.metaKey) return
 
     const looksLikeWheelDevice = event.deltaMode !== 0 || Math.abs(event.deltaY) >= 40
@@ -2558,6 +2902,33 @@ export function CanvasWidget() {
     const nextZoom = Math.min(4, Math.max(minZoom, transform.state.scale * zoomFactor))
 
     zoomCanvasAtClientPoint(event.clientX, event.clientY, nextZoom)
+  }
+
+  const handleDirectTrackpadPan = (event: WheelEvent) => {
+    const container = containerRef.current
+    const transform = transformRef.current
+    if (!container || !transform) return
+
+    if (!spacePressedRef.current || event.ctrlKey || event.metaKey) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const nextPositionX = transform.state.positionX - event.deltaX
+    const nextPositionY = transform.state.positionY - event.deltaY
+
+    spacePanUsedRef.current = true
+    startPanning()
+    transform.setTransform(nextPositionX, nextPositionY, transform.state.scale, 0)
+
+    if (trackpadPanStopTimeoutRef.current !== null) {
+      window.clearTimeout(trackpadPanStopTimeoutRef.current)
+    }
+
+    trackpadPanStopTimeoutRef.current = window.setTimeout(() => {
+      stopPanning()
+      trackpadPanStopTimeoutRef.current = null
+    }, 80)
   }
 
   const cursorValue =
@@ -2581,6 +2952,20 @@ export function CanvasWidget() {
                     ? 'grab'
                     : getCursorForTool(effectiveHoverTool)
 
+  const handleMoveFrameLeft = () => {
+    if (activeFrameIndex <= 0) return
+    const targetFrame = frames[activeFrameIndex - 1]
+    if (!targetFrame) return
+    reorderFrame(activeFrameId, targetFrame.id, 'before')
+  }
+
+  const handleMoveFrameRight = () => {
+    if (activeFrameIndex >= frames.length - 1) return
+    const targetFrame = frames[activeFrameIndex + 1]
+    if (!targetFrame) return
+    reorderFrame(activeFrameId, targetFrame.id, 'after')
+  }
+
   return (
     <motion.div
       className="glass-effect relative rounded-2xl p-5 flex h-full flex-col min-w-0 min-h-0"
@@ -2590,7 +2975,7 @@ export function CanvasWidget() {
     >
       <div
         ref={containerRef}
-        className={`flex-1 min-w-0 min-h-0 overflow-hidden ${isPanning ? 'select-none' : ''}`}
+        className={`relative flex-1 min-w-0 min-h-0 overflow-hidden ${isPanning ? 'select-none' : ''}`}
         onPointerEnter={() => {
           isPointerOverCanvasRef.current = true
         }}
@@ -2606,9 +2991,9 @@ export function CanvasWidget() {
           initialScale={zoom}
           minScale={minZoom}
           maxScale={4}
-          limitToBounds
+          limitToBounds={false}
           centerOnInit
-          centerZoomedOut
+          centerZoomedOut={false}
           smooth={false}
           pinch={{ step: 1.5 }}
           wheel={{
@@ -2642,11 +3027,12 @@ export function CanvasWidget() {
           }}
           onPanningStart={() => {
             if (isSpacePressed) {
-              setIsPanning(true)
+              spacePanUsedRef.current = true
+              startPanning()
             }
           }}
           onPanningStop={() => {
-            setIsPanning(false)
+            stopPanning()
           }}
         >
           <TransformComponent
@@ -2725,23 +3111,203 @@ export function CanvasWidget() {
                 ref={overlayCanvasRef}
                 width={canvasWidth}
                 height={canvasHeight}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerCancel}
-                onLostPointerCapture={handleLostPointerCapture}
-                onPointerLeave={handlePointerLeave}
+                onPointerDown={isAnimationPlaying ? undefined : handlePointerDown}
+                onPointerMove={isAnimationPlaying ? undefined : handlePointerMove}
+                onPointerUp={isAnimationPlaying ? undefined : handlePointerUp}
+                onPointerCancel={isAnimationPlaying ? undefined : handlePointerCancel}
+                onLostPointerCapture={isAnimationPlaying ? undefined : handleLostPointerCapture}
+                onPointerLeave={isAnimationPlaying ? undefined : handlePointerLeave}
                 className="touch-none absolute inset-0 z-20 max-w-none h-auto shrink-0"
                 style={{
-                  cursor: cursorValue,
+                  cursor: isAnimationPlaying ? 'default' : cursorValue,
                   width: `${canvasWidth}px`,
-                  height: `${canvasHeight}px`
+                  height: `${canvasHeight}px`,
+                  pointerEvents: isAnimationPlaying ? 'none' : 'auto'
                 }}
               />
             </div>
           </TransformComponent>
         </TransformWrapper>
+        <div className="pointer-events-none absolute right-4 top-4 z-40">
+          <div className="pointer-events-auto flex w-44 flex-col gap-3 rounded-2xl border border-white/70 bg-white/92 p-3 shadow-xl backdrop-blur">
+            <div className="self-center rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+              <canvas
+                ref={previewCanvasRef}
+                className="block h-20 w-20 rounded bg-white image-rendering-pixelated"
+                style={{ imageRendering: 'pixelated' }}
+                aria-label={t('canvas.preview.aria')}
+              />
+            </div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <MousePointer className="h-4 w-4" />
+              {Math.round(zoom * 100)}%
+            </div>
+            <input
+              type="range"
+              min={minZoom}
+              max="4"
+              step="0.01"
+              value={zoom}
+              onChange={(event) => handleZoomSliderChange(Number(event.target.value))}
+              className="slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200"
+              aria-label={t('canvas.zoom.aria')}
+            />
+          </div>
+        </div>
       </div>
+      <motion.div
+        className="pointer-events-none absolute inset-x-4 bottom-4 z-20"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+      >
+        <div
+          className="pointer-events-auto flex shrink-0 flex-col gap-4 rounded-2xl border border-white/70 bg-white/92 px-4 py-3 shadow-xl backdrop-blur"
+        >
+            <div className="flex w-full flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAnimationPanelCollapsed((currentValue) => !currentValue)}
+                  className="flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-gray-700 transition hover:text-primary-700"
+                  aria-expanded={!isAnimationPanelCollapsed}
+                  aria-label={t('canvas.animation.title')}
+                >
+                  <Film className="h-4 w-4" />
+                  {t('canvas.animation.title')}
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${isAnimationPanelCollapsed ? '' : 'rotate-180'}`}
+                  />
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsOnionSkinEnabled((currentValue) => !currentValue)}
+                  disabled={frames.length <= 1 || isAnimationPlaying}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    isOnionSkinEnabled
+                      ? 'border-primary-500 bg-primary-50 text-primary-700'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-primary-500 hover:text-primary-700'
+                  }`}
+                  title={t('canvas.animation.onionSkin')}
+                  aria-label={t('canvas.animation.onionSkin')}
+                >
+                  <Layers2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={addFrame}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 transition hover:border-primary-500 hover:text-primary-700"
+                  title={t('canvas.animation.addFrame')}
+                  aria-label={t('canvas.animation.addFrame')}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => duplicateFrame(activeFrameId)}
+                  disabled={frames.length === 0}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 transition hover:border-primary-500 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={t('canvas.animation.duplicateFrame')}
+                  aria-label={t('canvas.animation.duplicateFrame')}
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeFrame(activeFrameId)}
+                  disabled={frames.length <= 1}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 transition hover:border-red-400 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={t('canvas.animation.deleteFrame')}
+                  aria-label={t('canvas.animation.deleteFrame')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMoveFrameLeft}
+                  disabled={activeFrameIndex <= 0}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 transition hover:border-primary-500 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={t('canvas.animation.moveFrameLeft')}
+                  aria-label={t('canvas.animation.moveFrameLeft')}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMoveFrameRight}
+                  disabled={activeFrameIndex >= frames.length - 1}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 transition hover:border-primary-500 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={t('canvas.animation.moveFrameRight')}
+                  aria-label={t('canvas.animation.moveFrameRight')}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (frames.length <= 1) {
+                      setAnimationFrameIndex(0)
+                    }
+                    setIsAnimationPlaying((currentValue) => !currentValue)
+                  }}
+                  disabled={frames.length === 0}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:border-primary-500 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={isAnimationPlaying ? t('canvas.animation.pause') : t('canvas.animation.play')}
+                  aria-label={isAnimationPlaying ? t('canvas.animation.pause') : t('canvas.animation.play')}
+                >
+                  {isAnimationPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-[1px]" />}
+                </button>
+              </div>
+              <div className="flex w-full max-w-xs items-center gap-3 xl:justify-end">
+                <span className="shrink-0 text-sm font-medium text-gray-700">{t('canvas.animation.fps')}</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="24"
+                  step="1"
+                  value={animationFps}
+                  onChange={(event) => setAnimationFps(Number(event.target.value))}
+                  className="slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200"
+                  aria-label={t('canvas.animation.fps')}
+                />
+                <span className="min-w-[42px] text-right text-sm font-semibold text-gray-700">{animationFps}</span>
+              </div>
+            </div>
+            <AnimatePresence initial={false}>
+              {!isAnimationPanelCollapsed ? (
+                <motion.div
+                  key="animation-panel-content"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: 'easeInOut' }}
+                  className="overflow-hidden"
+                >
+                  <div className="w-full overflow-x-auto pt-4">
+                    <div className="flex min-w-max items-center gap-2 pb-1">
+                      {frames.map((frame, index) => (
+                        <FrameThumbnail
+                          key={frame.id}
+                          canvasSize={canvasSize}
+                          layers={frame.layers}
+                          index={index}
+                          isActive={frame.id === activeFrameId}
+                          onClick={() => {
+                            setIsAnimationPlaying(false)
+                            setActiveFrameId(frame.id)
+                            setAnimationFrameIndex(index)
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+        </div>
+      </motion.div>
       {pendingPastedImage ? (
         <div className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-slate-950/35 p-6 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-white/60 bg-white p-5 shadow-2xl">
@@ -2800,35 +3366,6 @@ export function CanvasWidget() {
           </div>
         </div>
       ) : null}
-      <motion.div
-        className="mt-3 flex shrink-0 items-center gap-3 rounded-xl border border-gray-200 bg-white/70 px-4 py-3"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-      >
-        <div className="shrink-0 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-          <canvas
-            ref={previewCanvasRef}
-            className="block h-16 w-16 rounded bg-white image-rendering-pixelated"
-            style={{ imageRendering: 'pixelated' }}
-            aria-label={t('canvas.preview.aria')}
-          />
-        </div>
-        <div className="flex min-w-[72px] items-center gap-2 text-sm font-semibold text-gray-700">
-          <MousePointer className="h-4 w-4" />
-          {Math.round(zoom * 100)}%
-        </div>
-        <input
-          type="range"
-          min={minZoom}
-          max="4"
-          step="0.01"
-          value={zoom}
-          onChange={(event) => handleZoomSliderChange(Number(event.target.value))}
-          className="slider h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200"
-          aria-label={t('canvas.zoom.aria')}
-        />
-      </motion.div>
     </motion.div>
   )
 }
