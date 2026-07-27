@@ -368,26 +368,51 @@ function getTransformHandleUiScale(zoom = 1) {
   return Math.min(14, Math.max(1.2, 2.4 / Math.max(zoom, 0.01)))
 }
 
-function getHandleCenters(bounds: LayerBounds, pixelSize: number, zoom = 1) {
+function getTransformOverlayPadding(zoom = 1) {
   const handleUiScale = getTransformHandleUiScale(zoom)
-  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * handleUiScale
+  return Math.ceil((ROTATE_HANDLE_OFFSET + HANDLE_SIZE * 1.5 + ROTATE_CORNER_HIT_PADDING) * handleUiScale)
+}
+
+function getTransformBoxMetrics(bounds: LayerBounds, pixelSize: number, zoom = 1) {
+  const handleUiScale = getTransformHandleUiScale(zoom)
+  const handleSize = HANDLE_SIZE * handleUiScale
+  const edgeOffset = handleSize * 0.75
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
   const right = (bounds.maxX + 1) * pixelSize
   const bottom = (bounds.maxY + 1) * pixelSize
-  const centerX = (left + right) / 2
-  const centerY = (top + bottom) / 2
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    outerLeft: left - edgeOffset,
+    outerTop: top - edgeOffset,
+    outerRight: right + edgeOffset,
+    outerBottom: bottom + edgeOffset,
+    edgeOffset,
+    handleSize
+  }
+}
+
+function getHandleCenters(bounds: LayerBounds, pixelSize: number, zoom = 1) {
+  const handleUiScale = getTransformHandleUiScale(zoom)
+  const rotateHandleOffset = ROTATE_HANDLE_OFFSET * handleUiScale
+  const { outerLeft, outerTop, outerRight, outerBottom } = getTransformBoxMetrics(bounds, pixelSize, zoom)
+  const centerX = (outerLeft + outerRight) / 2
+  const centerY = (outerTop + outerBottom) / 2
 
   return [
-    { handle: 'rotate' as const, x: centerX, y: top - rotateHandleOffset },
-    { handle: 'nw' as const, x: left, y: top },
-    { handle: 'n' as const, x: centerX, y: top },
-    { handle: 'ne' as const, x: right, y: top },
-    { handle: 'e' as const, x: right, y: centerY },
-    { handle: 'se' as const, x: right, y: bottom },
-    { handle: 's' as const, x: centerX, y: bottom },
-    { handle: 'sw' as const, x: left, y: bottom },
-    { handle: 'w' as const, x: left, y: centerY }
+    { handle: 'rotate' as const, x: centerX, y: outerTop - rotateHandleOffset },
+    { handle: 'nw' as const, x: outerLeft, y: outerTop },
+    { handle: 'n' as const, x: centerX, y: outerTop },
+    { handle: 'ne' as const, x: outerRight, y: outerTop },
+    { handle: 'e' as const, x: outerRight, y: centerY },
+    { handle: 'se' as const, x: outerRight, y: outerBottom },
+    { handle: 's' as const, x: centerX, y: outerBottom },
+    { handle: 'sw' as const, x: outerLeft, y: outerBottom },
+    { handle: 'w' as const, x: outerLeft, y: centerY }
   ]
 }
 
@@ -424,10 +449,8 @@ function getCornerRotateHandleAtCanvasPoint(
   zoom = 1
 ): RotateCorner | null {
   const handleUiScale = getTransformHandleUiScale(zoom)
-  const left = bounds.minX * pixelSize
-  const top = bounds.minY * pixelSize
-  const right = (bounds.maxX + 1) * pixelSize
-  const bottom = (bounds.maxY + 1) * pixelSize
+  const { outerLeft: left, outerTop: top, outerRight: right, outerBottom: bottom } =
+    getTransformBoxMetrics(bounds, pixelSize, zoom)
   const corners = [
     { x: left, y: top },
     { x: right, y: top },
@@ -463,23 +486,24 @@ function drawTransformBox(
 ) {
   const uiScale = getTransformUiScale(zoom)
   const handleUiScale = getTransformHandleUiScale(zoom)
-  const handleSize = HANDLE_SIZE * handleUiScale
+  const { outerLeft, outerTop, outerRight, handleSize } = getTransformBoxMetrics(bounds, pixelSize, zoom)
   const rotateHandleOffset = ROTATE_HANDLE_OFFSET * handleUiScale
   const left = bounds.minX * pixelSize
   const top = bounds.minY * pixelSize
-  const width = (bounds.maxX - bounds.minX + 1) * pixelSize
-  const height = (bounds.maxY - bounds.minY + 1) * pixelSize
+  const strokeWidth = (bounds.maxX - bounds.minX + 1) * pixelSize
+  const strokeHeight = (bounds.maxY - bounds.minY + 1) * pixelSize
+  const outerWidth = outerRight - outerLeft
 
   ctx.save()
   ctx.strokeStyle = '#2563eb'
   ctx.lineWidth = Math.max(2, 2 / Math.max(zoom, 0.01))
   ctx.setLineDash([6 * uiScale, 4 * uiScale])
-  ctx.strokeRect(left, top, width, height)
+  ctx.strokeRect(left, top, strokeWidth, strokeHeight)
   ctx.setLineDash([])
 
   ctx.beginPath()
-  ctx.moveTo(left + width / 2, top)
-  ctx.lineTo(left + width / 2, top - rotateHandleOffset)
+  ctx.moveTo(left + strokeWidth / 2, top)
+  ctx.lineTo(outerLeft + outerWidth / 2, outerTop - rotateHandleOffset)
   ctx.stroke()
 
   getHandleCenters(bounds, pixelSize, zoom).forEach(({ handle, x, y }) => {
@@ -801,49 +825,85 @@ function rotatePixels(
   const cos = Math.cos(angleRadians)
   const sin = Math.sin(angleRadians)
   const center = getBoundsCenter(bounds)
-  const corners = [
-    { x: bounds.minX, y: bounds.minY },
-    { x: bounds.maxX + 1, y: bounds.minY },
-    { x: bounds.maxX + 1, y: bounds.maxY + 1 },
-    { x: bounds.minX, y: bounds.maxY + 1 }
-  ].map((point) => {
-    const dx = point.x - center.x
-    const dy = point.y - center.y
+  const rotateVertex = (sourceX: number, sourceY: number) => {
+    const dx = sourceX - center.x
+    const dy = sourceY - center.y
 
     return {
       x: center.x + dx * cos - dy * sin,
       y: center.y + dx * sin + dy * cos
     }
-  })
-
-  const minX = Math.floor(Math.min(...corners.map((corner) => corner.x)))
-  const minY = Math.floor(Math.min(...corners.map((corner) => corner.y)))
-  const maxX = Math.ceil(Math.max(...corners.map((corner) => corner.x))) - 1
-  const maxY = Math.ceil(Math.max(...corners.map((corner) => corner.y))) - 1
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      if (x < 0 || y < 0 || x >= canvasSize.width || y >= canvasSize.height) continue
-
-      const targetCenterX = x + 0.5
-      const targetCenterY = y + 0.5
-      const dx = targetCenterX - center.x
-      const dy = targetCenterY - center.y
-      const sourceCenterX = center.x + dx * cos + dy * sin
-      const sourceCenterY = center.y - dx * sin + dy * cos
-      const sourceX = Math.floor(sourceCenterX)
-      const sourceY = Math.floor(sourceCenterY)
-
-      if (sourceX < bounds.minX || sourceY < bounds.minY || sourceX > bounds.maxX || sourceY > bounds.maxY) {
-        continue
-      }
-
-      const color = pixels.get(`${sourceX},${sourceY}`)
-      if (!color) continue
-
-      nextPixels.set(`${x},${y}`, color)
-    }
   }
+
+  const setPixel = (x: number, y: number, color: string) => {
+    if (x < 0 || y < 0 || x >= canvasSize.width || y >= canvasSize.height) return
+    nextPixels.set(`${x},${y}`, color)
+  }
+
+  const isPointInConvexPolygon = (
+    point: { x: number; y: number },
+    polygon: Array<{ x: number; y: number }>
+  ) => {
+    let hasPositive = false
+    let hasNegative = false
+
+    for (let index = 0; index < polygon.length; index++) {
+      const current = polygon[index]
+      const next = polygon[(index + 1) % polygon.length]
+      const cross =
+        (next.x - current.x) * (point.y - current.y) -
+        (next.y - current.y) * (point.x - current.x)
+
+      if (cross > 0.00001) hasPositive = true
+      if (cross < -0.00001) hasNegative = true
+      if (hasPositive && hasNegative) return false
+    }
+
+    return true
+  }
+
+  pixels.forEach((color, key) => {
+    const [sourceX, sourceY] = key.split(',').map(Number)
+
+    if (
+      sourceX < bounds.minX ||
+      sourceX > bounds.maxX ||
+      sourceY < bounds.minY ||
+      sourceY > bounds.maxY
+    ) {
+      return
+    }
+
+    const rotatedQuad = [
+      rotateVertex(sourceX, sourceY),
+      rotateVertex(sourceX + 1, sourceY),
+      rotateVertex(sourceX + 1, sourceY + 1),
+      rotateVertex(sourceX, sourceY + 1)
+    ]
+    const minX = Math.floor(Math.min(...rotatedQuad.map((point) => point.x)))
+    const maxX = Math.ceil(Math.max(...rotatedQuad.map((point) => point.x))) - 1
+    const minY = Math.floor(Math.min(...rotatedQuad.map((point) => point.y)))
+    const maxY = Math.ceil(Math.max(...rotatedQuad.map((point) => point.y))) - 1
+    let filledAnyPixel = false
+
+    for (let targetY = minY; targetY <= maxY; targetY++) {
+      for (let targetX = minX; targetX <= maxX; targetX++) {
+        const targetCenter = { x: targetX + 0.5, y: targetY + 0.5 }
+
+        if (!isPointInConvexPolygon(targetCenter, rotatedQuad)) {
+          continue
+        }
+
+        setPixel(targetX, targetY, color)
+        filledAnyPixel = true
+      }
+    }
+
+    if (!filledAnyPixel) {
+      const sourceCenter = rotateVertex(sourceX + 0.5, sourceY + 0.5)
+      setPixel(Math.round(sourceCenter.x - 0.5), Math.round(sourceCenter.y - 0.5), color)
+    }
+  })
 
   return nextPixels
 }
@@ -1135,6 +1195,14 @@ export function CanvasWidget() {
     center: { x: number; y: number }
     pixels: Map<string, string>
     startAngle: number
+    baseAngle: number
+  } | null>(null)
+  const rotationSessionCacheRef = useRef<{
+    layerId: string
+    sourceBounds: LayerBounds
+    sourcePixels: Map<string, string>
+    accumulatedAngle: number
+    committedPixels: Map<string, string> | null
   } | null>(null)
   const [stylusEraserActive, setStylusEraserActive] = useState(false)
   const [isLayerDragging, setIsLayerDragging] = useState(false)
@@ -1162,6 +1230,7 @@ export function CanvasWidget() {
   const [animationFrameIndex, setAnimationFrameIndex] = useState(0)
   const [isOnionSkinEnabled, setIsOnionSkinEnabled] = useState(false)
   const [isAnimationPanelCollapsed, setIsAnimationPanelCollapsed] = useState(true)
+  const [isPointerInsideCanvasArea, setIsPointerInsideCanvasArea] = useState(false)
 
   const pixelDisplaySize = 16
   const canvasWidth = canvasSize.width * pixelDisplaySize
@@ -1172,6 +1241,7 @@ export function CanvasWidget() {
   const displayedLayers = isAnimationPlaying
     ? (activeAnimationFrame?.layers ?? [])
     : layers
+  const transformOverlayPadding = getTransformOverlayPadding(zoom)
   const previousOnionFrame = !isAnimationPlaying && isOnionSkinEnabled && activeFrameIndex > 0
     ? frames[activeFrameIndex - 1]
     : null
@@ -1204,14 +1274,35 @@ export function CanvasWidget() {
     isPanningRef.current = false
     setIsPanning(false)
   }
+  const invalidateRotationSessionCache = () => {
+    rotationSessionCacheRef.current = null
+  }
+  const isCanvasPointInside = (canvasPoint: { x: number; y: number }) =>
+    canvasPoint.x >= 0 &&
+    canvasPoint.y >= 0 &&
+    canvasPoint.x < canvasWidth &&
+    canvasPoint.y < canvasHeight
+
+  useEffect(() => {
+    const cache = rotationSessionCacheRef.current
+    if (!cache) return
+    if (cache.layerId !== activeLayerId) {
+      invalidateRotationSessionCache()
+      return
+    }
+    if (cache.committedPixels && cache.committedPixels !== pixels) {
+      invalidateRotationSessionCache()
+    }
+  }, [activeLayerId, pixels])
 
   const isTemporaryEyedropperActive =
     isAltEyedropperPressed && selectedTool !== 'selection' && !isLayerDragging && !isLayerScaling && !isLayerRotating
   const effectiveHoverTool = isTemporaryEyedropperActive ? 'eyedropper' : selectedTool
 
-  const showEraserOutline = selectedTool === 'eraser' || stylusEraserActive
+  const showEraserOutline = isPointerInsideCanvasArea && (selectedTool === 'eraser' || stylusEraserActive)
   const showBrushOutline =
     !isAnimationPlaying &&
+    isPointerInsideCanvasArea &&
     selectedTool === 'pencil' &&
     !stylusEraserActive &&
     !isLayerDragging &&
@@ -1219,6 +1310,7 @@ export function CanvasWidget() {
     !isLayerRotating
   const showEyedropperOutline =
     !isAnimationPlaying &&
+    isPointerInsideCanvasArea &&
     effectiveHoverTool === 'eyedropper' &&
     !stylusEraserActive &&
     !isLayerDragging &&
@@ -1882,6 +1974,8 @@ export function CanvasWidget() {
     if (!ctx) return
 
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+    ctx.save()
+    ctx.translate(transformOverlayPadding, transformOverlayPadding)
 
     if (shouldShowTransformBox && previewBounds) {
       drawTransformBox(
@@ -1926,6 +2020,8 @@ export function CanvasWidget() {
         selectedColor
       )
     }
+
+    ctx.restore()
   }, [
     activeSelectionBounds,
     brushOutlineKey,
@@ -1946,6 +2042,7 @@ export function CanvasWidget() {
     showBrushOutline,
     showEyedropperOutline,
     showEraserOutline,
+    transformOverlayPadding,
     zoom
   ])
 
@@ -2149,18 +2246,29 @@ export function CanvasWidget() {
 
     if (isLayerDragging && activeLayerId) {
       const { x, y } = dragOffsetRef.current
+      invalidateRotationSessionCache()
       translateLayer(activeLayerId, x, y)
       resetLayerTransform()
       return
     }
 
     if (isLayerRotating && rotatePreviewPixels) {
+      if (activeLayerId && rotateStartRef.current) {
+        rotationSessionCacheRef.current = {
+          layerId: activeLayerId,
+          sourceBounds: rotateStartRef.current.bounds,
+          sourcePixels: new Map(rotateStartRef.current.pixels),
+          accumulatedAngle: rotatePreviewAngle,
+          committedPixels: rotatePreviewPixels
+        }
+      }
       setPixels(rotatePreviewPixels)
       resetLayerTransform()
       return
     }
 
     if (isLayerScaling && scalePreviewPixels) {
+      invalidateRotationSessionCache()
       setPixels(scalePreviewPixels)
       resetLayerTransform()
       return
@@ -2197,9 +2305,17 @@ export function CanvasWidget() {
 
     const coords = getPixelCoordinates(event)
     const canvasPoint = getCanvasCoordinates(event)
+    const isInsideCanvas = isCanvasPointInside(canvasPoint)
+    setIsPointerInsideCanvasArea(isInsideCanvas)
     setMousePosition(coords)
 
     if (pointerTool === 'selection') {
+      if (!isInsideCanvas) {
+        activePointerIdRef.current = null
+        event.currentTarget.releasePointerCapture(event.pointerId)
+        return
+      }
+
       const clampedCoords = clampPointToCanvas(coords.x, coords.y)
       selectionStartRef.current = clampedCoords
       const nextSelectionBounds = createBoundsFromPoints(clampedCoords.x, clampedCoords.y, clampedCoords.x, clampedCoords.y)
@@ -2211,6 +2327,12 @@ export function CanvasWidget() {
     }
 
     if (pointerTool === 'eyedropper') {
+      if (!isInsideCanvas) {
+        activePointerIdRef.current = null
+        event.currentTarget.releasePointerCapture(event.pointerId)
+        return
+      }
+
       const clampedCoords = clampPointToCanvas(coords.x, coords.y)
       const pickedColor = getVisibleLayerColorAtPoint(layers, clampedCoords.x, clampedCoords.y)
       setSelectedColor(pickedColor)
@@ -2232,25 +2354,34 @@ export function CanvasWidget() {
 
       if (handle) {
         if (handle === 'rotate') {
+          const cachedRotation =
+            rotationSessionCacheRef.current?.layerId === activeLayer.id
+              ? rotationSessionCacheRef.current
+              : null
           activeRotateCornerRef.current = rotateCorner
-          const center = getBoundsCenter(activeLayerBounds)
+          const sourceBounds = cachedRotation?.sourceBounds ?? activeLayerBounds
+          const sourcePixels = cachedRotation?.sourcePixels ?? new Map(activeLayer.pixels)
+          const baseAngle = cachedRotation?.accumulatedAngle ?? 0
+          const center = getBoundsCenter(sourceBounds)
           const pointerX = canvasPoint.x / pixelDisplaySize
           const pointerY = canvasPoint.y / pixelDisplaySize
 
           rotateStartRef.current = {
-            bounds: activeLayerBounds,
+            bounds: sourceBounds,
             center,
-            pixels: new Map(activeLayer.pixels),
-            startAngle: Math.atan2(pointerY - center.y, pointerX - center.x)
+            pixels: new Map(sourcePixels),
+            startAngle: Math.atan2(pointerY - center.y, pointerX - center.x),
+            baseAngle
           }
           setRotatePreviewPixels(new Map(activeLayer.pixels))
           setRotatePreviewBounds(activeLayerBounds)
-          setRotatePreviewAngle(0)
+          setRotatePreviewAngle(baseAngle)
           setIsLayerRotating(true)
           setIsDrawing(false)
           return
         }
 
+        invalidateRotationSessionCache()
         scaleHandleRef.current = handle
         scaleStartRef.current = {
           bounds: activeLayerBounds,
@@ -2263,6 +2394,7 @@ export function CanvasWidget() {
         return
       }
 
+      invalidateRotationSessionCache()
       dragStartRef.current = coords
       dragOffsetRef.current = { x: 0, y: 0 }
       setLayerDragOffset({ x: 0, y: 0 })
@@ -2271,6 +2403,13 @@ export function CanvasWidget() {
       return
     }
 
+    if (!isInsideCanvas) {
+      activePointerIdRef.current = null
+      event.currentTarget.releasePointerCapture(event.pointerId)
+      return
+    }
+
+    invalidateRotationSessionCache()
     pushHistory()
     setIsDrawing(true)
     if (strokeToolRef.current === 'rectangle' || strokeToolRef.current === 'ellipse') {
@@ -2343,6 +2482,8 @@ export function CanvasWidget() {
 
     const coords = getPixelCoordinates(event)
     const canvasPoint = getCanvasCoordinates(event)
+    const isInsideCanvas = isCanvasPointInside(canvasPoint)
+    setIsPointerInsideCanvasArea(isInsideCanvas)
     setMousePosition(coords)
     setIsAltEyedropperPressed(event.altKey)
 
@@ -2381,6 +2522,8 @@ export function CanvasWidget() {
       shapeBasePixelsRef.current &&
       (strokeToolRef.current === 'rectangle' || strokeToolRef.current === 'ellipse')
     ) {
+      if (!isInsideCanvas) return
+
       drawShape(
         shapeDragStartRef.current,
         coords,
@@ -2397,6 +2540,8 @@ export function CanvasWidget() {
       lineBasePixelsRef.current &&
       (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser')
     ) {
+      if (!isInsideCanvas) return
+
       drawStraightLine(
         lineDragStartRef.current,
         coords,
@@ -2413,8 +2558,9 @@ export function CanvasWidget() {
       const rawAngle =
         Math.atan2(pointerY - rotateStartRef.current.center.y, pointerX - rotateStartRef.current.center.x) -
         rotateStartRef.current.startAngle
+      const totalAngle = rotateStartRef.current.baseAngle + Number(((rawAngle * 180) / Math.PI).toFixed(1))
       const nextAngleDegrees = getSnappedRotationAngle(
-        Number(((rawAngle * 180) / Math.PI).toFixed(1)),
+        totalAngle,
         event.shiftKey
       )
       const nextPixels = rotatePixels(
@@ -2462,6 +2608,8 @@ export function CanvasWidget() {
     }
 
     if (strokeToolRef.current === 'pencil' || strokeToolRef.current === 'eraser') {
+      if (!isInsideCanvas) return
+
       const coalescedEvents = event.nativeEvent.getCoalescedEvents?.() ?? []
       const coalescedPoints = coalescedEvents
         .map((coalescedEvent) => getPixelCoordinatesFromClientPoint(coalescedEvent.clientX, coalescedEvent.clientY))
@@ -2526,6 +2674,7 @@ export function CanvasWidget() {
 
   const handlePointerLeave = (event: React.PointerEvent<HTMLCanvasElement>) => {
     spacePointerPanPointRef.current = null
+    setIsPointerInsideCanvasArea(false)
 
     if (event.pointerType === 'pen') {
       setStylusEraserActive(false)
@@ -2539,12 +2688,12 @@ export function CanvasWidget() {
   }
 
   const getCanvasCoordinates = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
+    const canvas = event.currentTarget
     if (!canvas) return { x: 0, y: 0 }
 
     const rect = canvas.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * canvas.width
-    const y = ((event.clientY - rect.top) / rect.height) * canvas.height
+    const x = ((event.clientX - rect.left) / rect.width) * canvas.width - transformOverlayPadding
+    const y = ((event.clientY - rect.top) / rect.height) * canvas.height - transformOverlayPadding
 
     return { x, y }
   }
@@ -3109,8 +3258,8 @@ export function CanvasWidget() {
               />
               <motion.canvas
                 ref={overlayCanvasRef}
-                width={canvasWidth}
-                height={canvasHeight}
+                width={canvasWidth + transformOverlayPadding * 2}
+                height={canvasHeight + transformOverlayPadding * 2}
                 onPointerDown={isAnimationPlaying ? undefined : handlePointerDown}
                 onPointerMove={isAnimationPlaying ? undefined : handlePointerMove}
                 onPointerUp={isAnimationPlaying ? undefined : handlePointerUp}
@@ -3120,8 +3269,10 @@ export function CanvasWidget() {
                 className="touch-none absolute inset-0 z-20 max-w-none h-auto shrink-0"
                 style={{
                   cursor: isAnimationPlaying ? 'default' : cursorValue,
-                  width: `${canvasWidth}px`,
-                  height: `${canvasHeight}px`,
+                  left: `${-transformOverlayPadding}px`,
+                  top: `${-transformOverlayPadding}px`,
+                  width: `${canvasWidth + transformOverlayPadding * 2}px`,
+                  height: `${canvasHeight + transformOverlayPadding * 2}px`,
                   pointerEvents: isAnimationPlaying ? 'none' : 'auto'
                 }}
               />
