@@ -223,12 +223,30 @@ function renderPixelPreview(
 type FrameThumbnailProps = {
   canvasSize: CanvasSize
   layers: Layer[]
+  frameId: string
   index: number
   isActive: boolean
+  isDragTarget: boolean
   onClick: () => void
+  onDragStart: (frameId: string) => void
+  onDragOver: (frameId: string) => void
+  onDrop: (frameId: string) => void
+  onDragEnd: () => void
 }
 
-function FrameThumbnail({ canvasSize, layers, index, isActive, onClick }: FrameThumbnailProps) {
+function FrameThumbnail({
+  canvasSize,
+  layers,
+  frameId,
+  index,
+  isActive,
+  isDragTarget,
+  onClick,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd
+}: FrameThumbnailProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -254,11 +272,27 @@ function FrameThumbnail({ canvasSize, layers, index, isActive, onClick }: FrameT
     <button
       type="button"
       onClick={onClick}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', frameId)
+        onDragStart(frameId)
+      }}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOver(frameId)
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        onDrop(frameId)
+      }}
+      onDragEnd={onDragEnd}
       className={`flex w-[92px] shrink-0 flex-col items-center gap-2 rounded-xl border p-2 transition ${
         isActive
           ? 'border-primary-500 bg-primary-50 text-primary-700'
           : 'border-gray-200 bg-white text-gray-600 hover:border-primary-300 hover:text-primary-700'
-      }`}
+      } ${isDragTarget ? 'ring-2 ring-primary-300 ring-offset-2' : ''}`}
     >
       <canvas
         ref={canvasRef}
@@ -1231,6 +1265,8 @@ export function CanvasWidget() {
   const [isOnionSkinEnabled, setIsOnionSkinEnabled] = useState(false)
   const [isAnimationPanelCollapsed, setIsAnimationPanelCollapsed] = useState(true)
   const [isPointerInsideCanvasArea, setIsPointerInsideCanvasArea] = useState(false)
+  const [draggedFrameId, setDraggedFrameId] = useState<string | null>(null)
+  const [dragOverFrameId, setDragOverFrameId] = useState<string | null>(null)
 
   const pixelDisplaySize = 16
   const canvasWidth = canvasSize.width * pixelDisplaySize
@@ -3115,6 +3151,45 @@ export function CanvasWidget() {
     reorderFrame(activeFrameId, targetFrame.id, 'after')
   }
 
+  const handleFrameDragStart = (frameId: string) => {
+    setDraggedFrameId(frameId)
+    setDragOverFrameId(frameId)
+  }
+
+  const handleFrameDragOver = (frameId: string) => {
+    if (!draggedFrameId || draggedFrameId === frameId) return
+    setDragOverFrameId(frameId)
+  }
+
+  const handleFrameDrop = (targetFrameId: string) => {
+    if (!draggedFrameId || draggedFrameId === targetFrameId) {
+      setDraggedFrameId(null)
+      setDragOverFrameId(null)
+      return
+    }
+
+    const draggedIndex = frames.findIndex((frame) => frame.id === draggedFrameId)
+    const targetIndex = frames.findIndex((frame) => frame.id === targetFrameId)
+    if (draggedIndex === -1 || targetIndex === -1) {
+      setDraggedFrameId(null)
+      setDragOverFrameId(null)
+      return
+    }
+
+    reorderFrame(
+      draggedFrameId,
+      targetFrameId,
+      draggedIndex < targetIndex ? 'after' : 'before'
+    )
+    setDraggedFrameId(null)
+    setDragOverFrameId(null)
+  }
+
+  const handleFrameDragEnd = () => {
+    setDraggedFrameId(null)
+    setDragOverFrameId(null)
+  }
+
   return (
     <motion.div
       className="glass-effect relative rounded-2xl p-5 flex h-full flex-col min-w-0 min-h-0"
@@ -3443,13 +3518,19 @@ export function CanvasWidget() {
                           key={frame.id}
                           canvasSize={canvasSize}
                           layers={frame.layers}
+                          frameId={frame.id}
                           index={index}
                           isActive={frame.id === activeFrameId}
+                          isDragTarget={dragOverFrameId === frame.id && draggedFrameId !== frame.id}
                           onClick={() => {
                             setIsAnimationPlaying(false)
                             setActiveFrameId(frame.id)
                             setAnimationFrameIndex(index)
                           }}
+                          onDragStart={handleFrameDragStart}
+                          onDragOver={handleFrameDragOver}
+                          onDrop={handleFrameDrop}
+                          onDragEnd={handleFrameDragEnd}
                         />
                       ))}
                     </div>
