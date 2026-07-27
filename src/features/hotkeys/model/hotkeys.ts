@@ -11,6 +11,7 @@ export type HotkeyId =
   | 'selectEraser'
   | 'selectFill'
   | 'selectSelection'
+  | 'selectSmartSelection'
   | 'selectRectangle'
   | 'selectEllipse'
   | 'selectEyedropper'
@@ -44,6 +45,7 @@ export const DEFAULT_HOTKEYS: Record<HotkeyId, HotkeyBinding> = {
   selectEraser: { code: 'KeyE', key: 'e' },
   selectFill: { code: 'KeyG', key: 'g' },
   selectSelection: { code: 'KeyM', key: 'm' },
+  selectSmartSelection: { code: 'KeyW', key: 'w' },
   selectRectangle: { code: 'KeyR', key: 'r' },
   selectEllipse: { code: 'KeyO', key: 'o' },
   selectEyedropper: { code: 'KeyI', key: 'i' }
@@ -62,6 +64,7 @@ export const HOTKEY_DEFINITIONS: HotkeyDefinition[] = [
   { id: 'selectEraser', description: 'Выбрать ластик', binding: DEFAULT_HOTKEYS.selectEraser },
   { id: 'selectFill', description: 'Выбрать заливку', binding: DEFAULT_HOTKEYS.selectFill },
   { id: 'selectSelection', description: 'Выбрать выделение', binding: DEFAULT_HOTKEYS.selectSelection },
+  { id: 'selectSmartSelection', description: 'Выбрать умное выделение', binding: DEFAULT_HOTKEYS.selectSmartSelection },
   { id: 'selectRectangle', description: 'Выбрать квадрат', binding: DEFAULT_HOTKEYS.selectRectangle },
   { id: 'selectEllipse', description: 'Выбрать круг', binding: DEFAULT_HOTKEYS.selectEllipse },
   { id: 'selectEyedropper', description: 'Выбрать пипетку', binding: DEFAULT_HOTKEYS.selectEyedropper }
@@ -109,6 +112,7 @@ export function loadHotkeys(): Record<HotkeyId, HotkeyBinding> {
       selectEraser: normalizeBinding(parsed.selectEraser ?? DEFAULT_HOTKEYS.selectEraser),
       selectFill: normalizeBinding(parsed.selectFill ?? DEFAULT_HOTKEYS.selectFill),
       selectSelection: normalizeBinding(parsed.selectSelection ?? DEFAULT_HOTKEYS.selectSelection),
+      selectSmartSelection: normalizeBinding(parsed.selectSmartSelection ?? DEFAULT_HOTKEYS.selectSmartSelection),
       selectRectangle: normalizeBinding(parsed.selectRectangle ?? DEFAULT_HOTKEYS.selectRectangle),
       selectEllipse: normalizeBinding(parsed.selectEllipse ?? DEFAULT_HOTKEYS.selectEllipse),
       selectEyedropper: normalizeBinding(parsed.selectEyedropper ?? DEFAULT_HOTKEYS.selectEyedropper)

@@ -14,6 +14,7 @@ import {
   Pencil,
   Pipette,
   Plus,
+  Sparkles,
   Settings,
   Square,
   Trash2,
@@ -69,6 +70,7 @@ const tools = [
   { id: 'eraser' as const, icon: Eraser, label: 'Eraser' },
   { id: 'fill' as const, icon: PaintBucket, label: 'Fill' },
   { id: 'selection' as const, icon: Crop, label: 'Selection' },
+  { id: 'smartSelection' as const, icon: Sparkles, label: 'Smart Selection' },
   { id: 'rectangle' as const, icon: Square, label: 'Rectangle' },
   { id: 'ellipse' as const, icon: Circle, label: 'Ellipse' },
   { id: 'eyedropper' as const, icon: Pipette, label: 'Eyedropper' }
@@ -101,6 +103,8 @@ function getToolHotkeyLabel(tool: Tool, hotkeys: ReturnType<typeof useHotkeyCont
       return formatHotkey(hotkeys.selectFill)
     case 'selection':
       return formatHotkey(hotkeys.selectSelection)
+    case 'smartSelection':
+      return formatHotkey(hotkeys.selectSmartSelection)
     case 'rectangle':
       return formatHotkey(hotkeys.selectRectangle)
     case 'ellipse':
@@ -219,6 +223,7 @@ export function ToolbarWidget({
         { binding: hotkeys.selectEraser, tool: 'eraser' as const },
         { binding: hotkeys.selectFill, tool: 'fill' as const },
         { binding: hotkeys.selectSelection, tool: 'selection' as const },
+        { binding: hotkeys.selectSmartSelection, tool: 'smartSelection' as const },
         { binding: hotkeys.selectRectangle, tool: 'rectangle' as const },
         { binding: hotkeys.selectEllipse, tool: 'ellipse' as const },
         { binding: hotkeys.selectEyedropper, tool: 'eyedropper' as const }
@@ -243,6 +248,7 @@ export function ToolbarWidget({
     hotkeys.selectPencil,
     hotkeys.selectRectangle,
     hotkeys.selectSelection,
+    hotkeys.selectSmartSelection,
     setSelectedTool
   ])
 

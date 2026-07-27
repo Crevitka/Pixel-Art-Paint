@@ -113,6 +113,7 @@ const PENCIL_CURSOR = createToolCursor(PENCIL_CURSOR_ICON, 3, 21)
 const ERASER_CURSOR = createToolCursor(ERASER_CURSOR_ICON, 8, 20, 'cell')
 const FILL_CURSOR = createToolCursor(FILL_CURSOR_ICON, 6, 18, 'pointer')
 const SELECTION_CURSOR = createToolCursor(SELECTION_CURSOR_ICON, 8, 8, 'crosshair')
+const SMART_SELECTION_CURSOR = createToolCursor(SELECTION_CURSOR_ICON, 8, 8, 'crosshair')
 const RECTANGLE_CURSOR = createToolCursor(RECTANGLE_CURSOR_ICON, 8, 8, 'crosshair')
 const ELLIPSE_CURSOR = createToolCursor(ELLIPSE_CURSOR_ICON, 8, 8, 'crosshair')
 const EYEDROPPER_CURSOR = createToolCursor(EYEDROPPER_CURSOR_ICON, 3, 20, 'copy')
@@ -352,6 +353,72 @@ function createBoundsFromPoints(startX: number, startY: number, endX: number, en
   }
 }
 
+function createSelectionKeysFromBounds(bounds: LayerBounds) {
+  const keys = new Set<string>()
+
+  for (let y = bounds.minY; y <= bounds.maxY; y++) {
+    for (let x = bounds.minX; x <= bounds.maxX; x++) {
+      keys.add(`${x},${y}`)
+    }
+  }
+
+  return keys
+}
+
+function getSelectionBoundsFromKeys(selectionKeys: Set<string>) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+
+  selectionKeys.forEach((key) => {
+    const [x, y] = key.split(',').map(Number)
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+  })
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null
+  }
+
+  return { minX, minY, maxX, maxY }
+}
+
+function getConnectedSelectionKeys(
+  pixelsMap: Map<string, string>,
+  startX: number,
+  startY: number,
+  canvasSize: CanvasSize
+) {
+  const startKey = `${startX},${startY}`
+  const targetColor = pixelsMap.get(startKey)
+  if (!targetColor) return null
+
+  const visited = new Set<string>()
+  const selectionKeys = new Set<string>()
+  const queue: Array<{ x: number; y: number }> = [{ x: startX, y: startY }]
+  let queueIndex = 0
+
+  while (queueIndex < queue.length) {
+    const point = queue[queueIndex++]
+    const key = `${point.x},${point.y}`
+    if (visited.has(key)) continue
+    visited.add(key)
+
+    if (pixelsMap.get(key) !== targetColor) continue
+    selectionKeys.add(key)
+
+    if (point.x > 0) queue.push({ x: point.x - 1, y: point.y })
+    if (point.x < canvasSize.width - 1) queue.push({ x: point.x + 1, y: point.y })
+    if (point.y > 0) queue.push({ x: point.x, y: point.y - 1 })
+    if (point.y < canvasSize.height - 1) queue.push({ x: point.x, y: point.y + 1 })
+  }
+
+  return selectionKeys.size > 0 ? selectionKeys : null
+}
+
 function getCursorForHandle(handle: TransformHandle, rotateAngle = 0) {
   switch (handle) {
     case 'n':
@@ -385,6 +452,8 @@ function getCursorForTool(tool: Tool) {
       return FILL_CURSOR
     case 'selection':
       return SELECTION_CURSOR
+    case 'smartSelection':
+      return SMART_SELECTION_CURSOR
     case 'rectangle':
       return RECTANGLE_CURSOR
     case 'ellipse':
@@ -619,6 +688,71 @@ function drawSelectionBox(ctx: CanvasRenderingContext2D, bounds: LayerBounds, pi
   ctx.lineWidth = Math.max(2, 2 / Math.max(zoom, 0.01))
   ctx.setLineDash([8 * uiScale, 4 * uiScale])
   ctx.strokeRect(left, top, width, height)
+  ctx.restore()
+}
+
+function drawSelectionShape(
+  ctx: CanvasRenderingContext2D,
+  selectionKeys: Set<string>,
+  pixelSize: number,
+  zoom = 1
+) {
+  if (selectionKeys.size === 0) return
+
+  const uiScale = getTransformUiScale(zoom)
+  const outerLineWidth = Math.max(2, 2 / Math.max(zoom, 0.01))
+  const innerLineWidth = Math.max(1, 1 / Math.max(zoom, 0.01))
+  const dash = [8 * uiScale, 4 * uiScale]
+  const outerOffset = outerLineWidth / 2
+  const innerOffset = innerLineWidth / 2
+
+  const traceEdges = (offset: number) => {
+    selectionKeys.forEach((key) => {
+      const [x, y] = key.split(',').map(Number)
+      const left = x * pixelSize
+      const top = y * pixelSize
+      const right = left + pixelSize
+      const bottom = top + pixelSize
+
+      if (!selectionKeys.has(`${x},${y - 1}`)) {
+        ctx.moveTo(left, top + offset)
+        ctx.lineTo(right, top + offset)
+      }
+
+      if (!selectionKeys.has(`${x + 1},${y}`)) {
+        ctx.moveTo(right - offset, top)
+        ctx.lineTo(right - offset, bottom)
+      }
+
+      if (!selectionKeys.has(`${x},${y + 1}`)) {
+        ctx.moveTo(left, bottom - offset)
+        ctx.lineTo(right, bottom - offset)
+      }
+
+      if (!selectionKeys.has(`${x - 1},${y}`)) {
+        ctx.moveTo(left + offset, top)
+        ctx.lineTo(left + offset, bottom)
+      }
+    })
+  }
+
+  ctx.save()
+  ctx.beginPath()
+  traceEdges(outerOffset)
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)'
+  ctx.lineWidth = outerLineWidth
+  ctx.setLineDash(dash)
+  ctx.lineDashOffset = 0
+  ctx.stroke()
+
+  ctx.beginPath()
+  traceEdges(innerOffset)
+  ctx.strokeStyle = '#f59e0b'
+  ctx.lineWidth = innerLineWidth
+  ctx.setLineDash(dash)
+  ctx.lineDashOffset = 4 * uiScale
+  ctx.stroke()
+  ctx.setLineDash([])
   ctx.restore()
 }
 
@@ -1046,6 +1180,16 @@ function removePixelsInBounds(pixels: Map<string, string>, bounds: LayerBounds) 
   return nextPixels
 }
 
+function removePixelsInSelectionKeys(pixels: Map<string, string>, selectionKeys: Set<string>) {
+  const nextPixels = new Map(pixels)
+
+  selectionKeys.forEach((key) => {
+    nextPixels.delete(key)
+  })
+
+  return nextPixels
+}
+
 function copyPixelsInBounds(pixels: Map<string, string>, bounds: LayerBounds): ClipboardSelection | null {
   const clipboardPixels = new Map<string, string>()
 
@@ -1057,6 +1201,30 @@ function copyPixelsInBounds(pixels: Map<string, string>, bounds: LayerBounds): C
       clipboardPixels.set(`${x - bounds.minX},${y - bounds.minY}`, color)
     }
   }
+
+  if (clipboardPixels.size === 0) return null
+
+  return {
+    width: bounds.maxX - bounds.minX + 1,
+    height: bounds.maxY - bounds.minY + 1,
+    pixels: clipboardPixels,
+    sourceBounds: { ...bounds }
+  }
+}
+
+function copyPixelsInSelectionKeys(pixels: Map<string, string>, selectionKeys: Set<string>): ClipboardSelection | null {
+  const bounds = getSelectionBoundsFromKeys(selectionKeys)
+  if (!bounds) return null
+
+  const clipboardPixels = new Map<string, string>()
+
+  selectionKeys.forEach((key) => {
+    const color = pixels.get(key)
+    if (!color) return
+
+    const [x, y] = key.split(',').map(Number)
+    clipboardPixels.set(`${x - bounds.minX},${y - bounds.minY}`, color)
+  })
 
   if (clipboardPixels.size === 0) return null
 
@@ -1257,6 +1425,7 @@ export function CanvasWidget() {
   const [rotatePreviewBounds, setRotatePreviewBounds] = useState<LayerBounds | null>(null)
   const [rotatePreviewAngle, setRotatePreviewAngle] = useState(0)
   const [selectionBounds, setSelectionBounds] = useState<LayerBounds | null>(null)
+  const [selectionPixelKeys, setSelectionPixelKeys] = useState<Set<string> | null>(null)
   const [selectionPreviewBounds, setSelectionPreviewBounds] = useState<LayerBounds | null>(null)
   const [pendingPastedImage, setPendingPastedImage] = useState<PendingPastedImage | null>(null)
   const [isReferenceDragging, setIsReferenceDragging] = useState(false)
@@ -1295,6 +1464,7 @@ export function CanvasWidget() {
   const shouldShowTransformBox = Boolean(
     !isAnimationPlaying &&
     selectedTool !== 'selection' &&
+    selectedTool !== 'smartSelection' &&
     (isMoveModifierPressed || isLayerDragging || isLayerScaling || isLayerRotating) &&
     previewBounds
   )
@@ -1332,7 +1502,12 @@ export function CanvasWidget() {
   }, [activeLayerId, pixels])
 
   const isTemporaryEyedropperActive =
-    isAltEyedropperPressed && selectedTool !== 'selection' && !isLayerDragging && !isLayerScaling && !isLayerRotating
+    isAltEyedropperPressed &&
+    selectedTool !== 'selection' &&
+    selectedTool !== 'smartSelection' &&
+    !isLayerDragging &&
+    !isLayerScaling &&
+    !isLayerRotating
   const effectiveHoverTool = isTemporaryEyedropperActive ? 'eyedropper' : selectedTool
 
   const showEraserOutline = isPointerInsideCanvasArea && (selectedTool === 'eraser' || stylusEraserActive)
@@ -1360,14 +1535,22 @@ export function CanvasWidget() {
   const cutSelection = () => {
     if (!selectionBounds) return
 
-    clipboardRef.current = copyPixelsInBounds(pixels, selectionBounds)
+    const copiedSelection = selectionPixelKeys
+      ? copyPixelsInSelectionKeys(pixels, selectionPixelKeys)
+      : copyPixelsInBounds(pixels, selectionBounds)
+    if (!copiedSelection) return
 
-    const nextPixels = removePixelsInBounds(pixels, selectionBounds)
+    clipboardRef.current = copiedSelection
+
+    const nextPixels = selectionPixelKeys
+      ? removePixelsInSelectionKeys(pixels, selectionPixelKeys)
+      : removePixelsInBounds(pixels, selectionBounds)
     if (nextPixels.size === pixels.size) return
 
     pushHistory()
     setPixels(nextPixels)
     setSelectionBounds(null)
+    setSelectionPixelKeys(null)
     setSelectionPreviewBounds(null)
     selectionStartRef.current = null
     setIsSelecting(false)
@@ -1375,15 +1558,18 @@ export function CanvasWidget() {
 
   const copySelection = () => {
     if (!selectionBounds) return
-    clipboardRef.current = copyPixelsInBounds(pixels, selectionBounds)
+
+    clipboardRef.current = selectionPixelKeys
+      ? copyPixelsInSelectionKeys(pixels, selectionPixelKeys)
+      : copyPixelsInBounds(pixels, selectionBounds)
   }
 
   const pasteSelection = () => {
     const clipboard = clipboardRef.current
     if (!clipboard) return
 
-    const pasteX = Math.max(0, Math.min(canvasSize.width - 1, clipboard.sourceBounds.minX + 1))
-    const pasteY = Math.max(0, Math.min(canvasSize.height - 1, clipboard.sourceBounds.minY + 1))
+    const pasteX = Math.max(0, Math.min(canvasSize.width - 1, clipboard.sourceBounds.minX))
+    const pasteY = Math.max(0, Math.min(canvasSize.height - 1, clipboard.sourceBounds.minY))
     const nextPixels = pasteClipboardPixels(pixels, clipboard, pasteX, pasteY, canvasSize)
 
     pushHistory()
@@ -1400,6 +1586,7 @@ export function CanvasWidget() {
     )
 
     setSelectionBounds(nextSelectionBounds)
+    setSelectionPixelKeys(createSelectionKeysFromBounds(nextSelectionBounds))
     setSelectionPreviewBounds(null)
     selectionStartRef.current = null
     setIsSelecting(false)
@@ -1764,6 +1951,7 @@ export function CanvasWidget() {
       if (eventMatchesHotkey(event, hotkeys.cancel)) {
         clearPendingPastedImage()
         setSelectionBounds(null)
+        setSelectionPixelKeys(null)
         setSelectionPreviewBounds(null)
         selectionStartRef.current = null
         setIsSelecting(false)
@@ -2027,7 +2215,9 @@ export function CanvasWidget() {
       }
     }
 
-    if (activeSelectionBounds) {
+    if (selectionPixelKeys && !isSelecting) {
+      drawSelectionShape(ctx, selectionPixelKeys, pixelDisplaySize, zoom)
+    } else if (activeSelectionBounds) {
       drawSelectionBox(ctx, activeSelectionBounds, pixelDisplaySize, zoom)
     }
 
@@ -2073,6 +2263,7 @@ export function CanvasWidget() {
     pixelDisplaySize,
     previewBounds,
     rotatePreviewAngle,
+    selectionPixelKeys,
     selectedColor,
     shouldShowTransformBox,
     showBrushOutline,
@@ -2276,6 +2467,7 @@ export function CanvasWidget() {
 
     if (isSelecting && selectionPreviewBounds) {
       setSelectionBounds(selectionPreviewBounds)
+      setSelectionPixelKeys(createSelectionKeysFromBounds(selectionPreviewBounds))
       resetSelectionDrag()
       return
     }
@@ -2331,7 +2523,7 @@ export function CanvasWidget() {
     }
 
     const pointerTool =
-      event.altKey && selectedTool !== 'selection'
+      event.altKey && selectedTool !== 'selection' && selectedTool !== 'smartSelection'
         ? 'eyedropper'
         : selectedTool
 
@@ -2345,6 +2537,14 @@ export function CanvasWidget() {
     setIsPointerInsideCanvasArea(isInsideCanvas)
     setMousePosition(coords)
 
+    if (!isInsideCanvas && (selectionBounds || selectionPixelKeys || selectionPreviewBounds)) {
+      setSelectionBounds(null)
+      setSelectionPixelKeys(null)
+      setSelectionPreviewBounds(null)
+      selectionStartRef.current = null
+      setIsSelecting(false)
+    }
+
     if (pointerTool === 'selection') {
       if (!isInsideCanvas) {
         activePointerIdRef.current = null
@@ -2355,9 +2555,50 @@ export function CanvasWidget() {
       const clampedCoords = clampPointToCanvas(coords.x, coords.y)
       selectionStartRef.current = clampedCoords
       const nextSelectionBounds = createBoundsFromPoints(clampedCoords.x, clampedCoords.y, clampedCoords.x, clampedCoords.y)
+      setSelectionPixelKeys(createSelectionKeysFromBounds(nextSelectionBounds))
       setSelectionPreviewBounds(nextSelectionBounds)
       setSelectionBounds(nextSelectionBounds)
       setIsSelecting(true)
+      setIsDrawing(false)
+      return
+    }
+
+    if (pointerTool === 'smartSelection') {
+      if (!isInsideCanvas) {
+        activePointerIdRef.current = null
+        event.currentTarget.releasePointerCapture(event.pointerId)
+        return
+      }
+
+      const clampedCoords = clampPointToCanvas(coords.x, coords.y)
+      const nextSelectionPixelKeys = getConnectedSelectionKeys(
+        pixels,
+        clampedCoords.x,
+        clampedCoords.y,
+        canvasSize
+      )
+
+      if (!nextSelectionPixelKeys) {
+        setSelectionBounds(null)
+        setSelectionPixelKeys(null)
+        setSelectionPreviewBounds(null)
+        setIsSelecting(false)
+        return
+      }
+
+      const nextSelectionBounds = getSelectionBoundsFromKeys(nextSelectionPixelKeys)
+      if (!nextSelectionBounds) {
+        setSelectionBounds(null)
+        setSelectionPixelKeys(null)
+        setSelectionPreviewBounds(null)
+        setIsSelecting(false)
+        return
+      }
+
+      setSelectionBounds(nextSelectionBounds)
+      setSelectionPixelKeys(nextSelectionPixelKeys)
+      setSelectionPreviewBounds(null)
+      setIsSelecting(false)
       setIsDrawing(false)
       return
     }
@@ -2526,7 +2767,13 @@ export function CanvasWidget() {
     const stylusEraser = isStylusEraser(event)
     setStylusEraserActive(stylusEraser)
 
-    if (activePointerIdRef.current === null && selectedTool !== 'selection' && isMoveModifierPressed && activeLayerBounds) {
+    if (
+      activePointerIdRef.current === null &&
+      selectedTool !== 'selection' &&
+      selectedTool !== 'smartSelection' &&
+      isMoveModifierPressed &&
+      activeLayerBounds
+    ) {
       const directHandle = getHandleAtCanvasPoint(canvasPoint.x, canvasPoint.y, activeLayerBounds, pixelDisplaySize, zoom)
       const rotateCorner = directHandle
         ? null
