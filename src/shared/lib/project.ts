@@ -1,5 +1,20 @@
 import type { AnimationFrame, Layer, Tool } from '@/shared/types'
-import type { AppLocale } from '@/features/i18n'
+import type { AppLocale } from '@/features/i18n/model/translations'
+export {
+  clearSessionProject,
+  clearSessionProjectHandle,
+  getProjectTemplates,
+  getRecentProjectById,
+  getRecentProjects,
+  getSessionProject,
+  getSessionProjectHandle,
+  saveProjectTemplate,
+  saveRecentProject,
+  saveSessionProject,
+  saveSessionProjectHandle,
+  subscribeToProjectTemplates,
+  subscribeToRecentProjects
+} from './projectStorage'
 
 export type SerializableLayer = {
   id: string
@@ -82,18 +97,6 @@ export type RecentProjectEntry = {
   }
 }
 
-const RECENT_PROJECTS_STORAGE_KEY = 'pixel-art-paint.recent-projects'
-const RECENT_PROJECTS_EVENT = 'pixel-art-paint:recent-projects-updated'
-const PROJECT_TEMPLATES_STORAGE_KEY = 'pixel-art-paint.project-templates'
-const PROJECT_TEMPLATES_EVENT = 'pixel-art-paint:project-templates-updated'
-const SESSION_PROJECT_STORAGE_KEY = 'pixel-art-paint.session-project'
-const SESSION_DB_NAME = 'pixel-art-paint-session'
-const SESSION_DB_VERSION = 2
-const SESSION_HANDLES_STORE = 'handles'
-const RECENT_PROJECTS_STORE = 'recent-projects'
-const SESSION_PROJECT_HANDLE_KEY = 'current-project-handle'
-const MAX_RECENT_PROJECTS = 8
-
 export type SessionProjectState = {
   projectName: string | null
   pathname: '/' | '/editor'
@@ -142,9 +145,9 @@ export function getDefaultStartTemplates(locale: AppLocale): StartTemplate[] {
   return [
     {
       id: 'icon-16',
-      title: locale === 'ru' ? 'Иконка 16x16' : 'Icon 16x16',
+      title: locale === 'ru' ? 'Ð˜ÐºÐ¾Ð½ÐºÐ° 16x16' : 'Icon 16x16',
       description: locale === 'ru'
-        ? 'Быстрый старт для очень маленьких пиксельных иконок.'
+        ? 'Ð‘Ñ‹ÑÑ‚Ñ€Ñ‹Ð¹ ÑÑ‚Ð°Ñ€Ñ‚ Ð´Ð»Ñ Ð¾Ñ‡ÐµÐ½ÑŒ Ð¼Ð°Ð»ÐµÐ½ÑŒÐºÐ¸Ñ… Ð¿Ð¸ÐºÑÐµÐ»ÑŒÐ½Ñ‹Ñ… Ð¸ÐºÐ¾Ð½Ð¾Ðº.'
         : 'A quick start for very small pixel icons.',
       size: { width: 16, height: 16 },
       paletteColors: [...defaultPalettePresets[0].colors],
@@ -152,9 +155,9 @@ export function getDefaultStartTemplates(locale: AppLocale): StartTemplate[] {
     },
     {
       id: 'sprite-32',
-      title: locale === 'ru' ? 'Спрайт 32x32' : 'Sprite 32x32',
+      title: locale === 'ru' ? 'Ð¡Ð¿Ñ€Ð°Ð¹Ñ‚ 32x32' : 'Sprite 32x32',
       description: locale === 'ru'
-        ? 'Подходит для персонажей, предметов и UI-элементов.'
+        ? 'ÐŸÐ¾Ð´Ñ…Ð¾Ð´Ð¸Ñ‚ Ð´Ð»Ñ Ð¿ÐµÑ€ÑÐ¾Ð½Ð°Ð¶ÐµÐ¹, Ð¿Ñ€ÐµÐ´Ð¼ÐµÑ‚Ð¾Ð² Ð¸ UI-ÑÐ»ÐµÐ¼ÐµÐ½Ñ‚Ð¾Ð².'
         : 'Good for characters, items, and UI elements.',
       size: { width: 32, height: 32 },
       paletteColors: [...defaultPalettePresets[2].colors],
@@ -162,9 +165,9 @@ export function getDefaultStartTemplates(locale: AppLocale): StartTemplate[] {
     },
     {
       id: 'scene-64',
-      title: locale === 'ru' ? 'Сцена 64x64' : 'Scene 64x64',
+      title: locale === 'ru' ? 'Ð¡Ñ†ÐµÐ½Ð° 64x64' : 'Scene 64x64',
       description: locale === 'ru'
-        ? 'Для более сложных объектов и небольших окружений.'
+        ? 'Ð”Ð»Ñ Ð±Ð¾Ð»ÐµÐµ ÑÐ»Ð¾Ð¶Ð½Ñ‹Ñ… Ð¾Ð±ÑŠÐµÐºÑ‚Ð¾Ð² Ð¸ Ð½ÐµÐ±Ð¾Ð»ÑŒÑˆÐ¸Ñ… Ð¾ÐºÑ€ÑƒÐ¶ÐµÐ½Ð¸Ð¹.'
         : 'For more complex objects and small environments.',
       size: { width: 64, height: 64 },
       paletteColors: [...defaultPalettePresets[3].colors],
@@ -174,25 +177,13 @@ export function getDefaultStartTemplates(locale: AppLocale): StartTemplate[] {
       id: 'gameboy-32',
       title: 'Game Boy 32x32',
       description: locale === 'ru'
-        ? 'Монохромный шаблон с палитрой под ретро-экран.'
+        ? 'ÐœÐ¾Ð½Ð¾Ñ…Ñ€Ð¾Ð¼Ð½Ñ‹Ð¹ ÑˆÐ°Ð±Ð»Ð¾Ð½ Ñ Ð¿Ð°Ð»Ð¸Ñ‚Ñ€Ð¾Ð¹ Ð¿Ð¾Ð´ Ñ€ÐµÑ‚Ñ€Ð¾-ÑÐºÑ€Ð°Ð½.'
         : 'A monochrome template with a retro display palette.',
       size: { width: 32, height: 32 },
       paletteColors: [...defaultPalettePresets[1].colors],
       isBuiltIn: true
     }
   ]
-}
-
-function getStoredCustomTemplates() {
-  if (typeof window === 'undefined') return [] as StartTemplate[]
-
-  try {
-    const rawValue = window.localStorage.getItem(PROJECT_TEMPLATES_STORAGE_KEY)
-    const customTemplates = rawValue ? (JSON.parse(rawValue) as StartTemplate[]) : []
-    return Array.isArray(customTemplates) ? customTemplates.filter((template) => !template.isBuiltIn) : []
-  } catch {
-    return []
-  }
 }
 
 export function serializeLayers(layers: Layer[]): SerializableLayer[] {
@@ -259,265 +250,4 @@ export function readProjectFile(file: File) {
     reader.onerror = () => reject(reader.error)
     reader.readAsText(file)
   })
-}
-
-export function getRecentProjects() {
-  if (typeof window === 'undefined') return [] as RecentProjectEntry[]
-
-  try {
-    const rawValue = window.localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY)
-    if (!rawValue) return []
-
-    const parsed = JSON.parse(rawValue) as Array<
-      RecentProjectEntry | (RecentProjectEntry & { project?: PixelArtProject })
-    >
-    if (!Array.isArray(parsed)) return []
-
-    return parsed.flatMap((entry) => {
-      if (!entry || typeof entry !== 'object') return []
-
-      const canvasSize =
-        'canvasSize' in entry && entry.canvasSize
-          ? entry.canvasSize
-          : 'project' in entry && entry.project
-            ? entry.project.canvas.canvasSize
-            : null
-
-      if (
-        !canvasSize ||
-        typeof canvasSize.width !== 'number' ||
-        typeof canvasSize.height !== 'number'
-      ) {
-        return []
-      }
-
-      return [{
-        id: entry.id,
-        name: entry.name,
-        updatedAt: entry.updatedAt,
-        canvasSize
-      }]
-    })
-  } catch {
-    return []
-  }
-}
-
-function emitRecentProjectsUpdated() {
-  if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent(RECENT_PROJECTS_EVENT))
-}
-
-function emitProjectTemplatesUpdated() {
-  if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent(PROJECT_TEMPLATES_EVENT))
-}
-
-export function subscribeToRecentProjects(listener: () => void) {
-  if (typeof window === 'undefined') return () => {}
-
-  window.addEventListener(RECENT_PROJECTS_EVENT, listener)
-  return () => {
-    window.removeEventListener(RECENT_PROJECTS_EVENT, listener)
-  }
-}
-
-export function getProjectTemplates(locale: AppLocale) {
-  return [
-    ...getDefaultStartTemplates(locale),
-    ...getStoredCustomTemplates()
-  ]
-}
-
-export function subscribeToProjectTemplates(listener: () => void) {
-  if (typeof window === 'undefined') return () => {}
-
-  window.addEventListener(PROJECT_TEMPLATES_EVENT, listener)
-  return () => {
-    window.removeEventListener(PROJECT_TEMPLATES_EVENT, listener)
-  }
-}
-
-export function saveProjectTemplate(template: Omit<StartTemplate, 'id' | 'isBuiltIn'>) {
-  if (typeof window === 'undefined') return
-
-  const customTemplates = getStoredCustomTemplates()
-  const nextTemplate: StartTemplate = {
-    ...template,
-    id: `custom-template-${Date.now()}`,
-    paletteColors: [...template.paletteColors],
-    isBuiltIn: false
-  }
-
-  const nextTemplates = [
-    nextTemplate,
-    ...customTemplates.filter((item) => item.title !== template.title)
-  ]
-
-  window.localStorage.setItem(PROJECT_TEMPLATES_STORAGE_KEY, JSON.stringify(nextTemplates))
-  emitProjectTemplatesUpdated()
-}
-
-async function saveRecentProjectRecord(id: string, project: PixelArtProject) {
-  const db = await openSessionDb()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(RECENT_PROJECTS_STORE, 'readwrite')
-    const store = transaction.objectStore(RECENT_PROJECTS_STORE)
-    store.put({ id, project })
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
-  db.close()
-}
-
-async function deleteRecentProjectRecord(id: string) {
-  const db = await openSessionDb()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(RECENT_PROJECTS_STORE, 'readwrite')
-    const store = transaction.objectStore(RECENT_PROJECTS_STORE)
-    store.delete(id)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
-  db.close()
-}
-
-export async function getRecentProjectById(id: string) {
-  if (typeof window === 'undefined') return null as PixelArtProject | null
-
-  const db = await openSessionDb()
-  const project = await new Promise<PixelArtProject | null>((resolve, reject) => {
-    const transaction = db.transaction(RECENT_PROJECTS_STORE, 'readonly')
-    const store = transaction.objectStore(RECENT_PROJECTS_STORE)
-    const request = store.get(id)
-    request.onsuccess = () => {
-      const result = request.result as { id: string; project: PixelArtProject } | undefined
-      resolve(result?.project ?? null)
-    }
-    request.onerror = () => reject(request.error)
-  })
-  db.close()
-  return project
-}
-
-export async function saveRecentProject(entry: {
-  name: string
-  project: PixelArtProject
-}) {
-  if (typeof window === 'undefined') return
-
-  const previousProjects = getRecentProjects()
-  const replacedEntry = previousProjects.find((project) => project.name === entry.name) ?? null
-  const nextEntry: RecentProjectEntry = {
-    id: `${entry.name}-${Date.now()}`,
-    name: entry.name,
-    updatedAt: new Date().toISOString(),
-    canvasSize: entry.project.canvas.canvasSize
-  }
-
-  const nextProjects = [
-    nextEntry,
-    ...previousProjects.filter((project) => project.name !== entry.name)
-  ].slice(0, MAX_RECENT_PROJECTS)
-
-  window.localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(nextProjects))
-
-  await saveRecentProjectRecord(nextEntry.id, entry.project)
-
-  const staleIds = [
-    ...(replacedEntry ? [replacedEntry.id] : []),
-    ...previousProjects
-      .filter((project) => !nextProjects.some((nextProject) => nextProject.id === project.id))
-      .map((project) => project.id)
-  ]
-
-  await Promise.all(staleIds.map((id) => deleteRecentProjectRecord(id)))
-  emitRecentProjectsUpdated()
-}
-
-export function getSessionProject() {
-  if (typeof window === 'undefined') return null as SessionProjectState | null
-
-  try {
-    const rawValue = window.localStorage.getItem(SESSION_PROJECT_STORAGE_KEY)
-    if (!rawValue) return null
-
-    const parsed = JSON.parse(rawValue) as SessionProjectState
-    if (!parsed || typeof parsed !== 'object') return null
-    return parsed
-  } catch {
-    return null
-  }
-}
-
-export function saveSessionProject(state: SessionProjectState) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(SESSION_PROJECT_STORAGE_KEY, JSON.stringify(state))
-}
-
-export function clearSessionProject() {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(SESSION_PROJECT_STORAGE_KEY)
-}
-
-function openSessionDb() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = window.indexedDB.open(SESSION_DB_NAME, SESSION_DB_VERSION)
-
-    request.onupgradeneeded = () => {
-      const db = request.result
-      if (!db.objectStoreNames.contains(SESSION_HANDLES_STORE)) {
-        db.createObjectStore(SESSION_HANDLES_STORE)
-      }
-      if (!db.objectStoreNames.contains(RECENT_PROJECTS_STORE)) {
-        db.createObjectStore(RECENT_PROJECTS_STORE, { keyPath: 'id' })
-      }
-    }
-
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
-  })
-}
-
-export async function saveSessionProjectHandle(handle: FileSystemFileHandle) {
-  if (typeof window === 'undefined') return
-
-  const db = await openSessionDb()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(SESSION_HANDLES_STORE, 'readwrite')
-    const store = transaction.objectStore(SESSION_HANDLES_STORE)
-    store.put(handle, SESSION_PROJECT_HANDLE_KEY)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
-  db.close()
-}
-
-export async function getSessionProjectHandle() {
-  if (typeof window === 'undefined') return null as FileSystemFileHandle | null
-
-  const db = await openSessionDb()
-  const handle = await new Promise<FileSystemFileHandle | null>((resolve, reject) => {
-    const transaction = db.transaction(SESSION_HANDLES_STORE, 'readonly')
-    const store = transaction.objectStore(SESSION_HANDLES_STORE)
-    const request = store.get(SESSION_PROJECT_HANDLE_KEY)
-    request.onsuccess = () => resolve((request.result as FileSystemFileHandle | undefined) ?? null)
-    request.onerror = () => reject(request.error)
-  })
-  db.close()
-  return handle
-}
-
-export async function clearSessionProjectHandle() {
-  if (typeof window === 'undefined') return
-
-  const db = await openSessionDb()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(SESSION_HANDLES_STORE, 'readwrite')
-    const store = transaction.objectStore(SESSION_HANDLES_STORE)
-    store.delete(SESSION_PROJECT_HANDLE_KEY)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
-  db.close()
 }

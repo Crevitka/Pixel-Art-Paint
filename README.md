@@ -2,25 +2,29 @@
 
 Pixel Art Paint is a browser-based pixel art editor built with React, TypeScript, Vite, Tailwind CSS, Framer Motion, and Feature-Sliced Design.
 
-The project is focused on a desktop-style drawing workflow: layers, selection, transform controls, reference images, zoom and pan, customizable panels, and quick export to PNG.
+The project is focused on a desktop-style workflow for sprite drawing and animation: layers, selections, transform controls, animation frames, reference images, dockable panels, project save/load, and export tools.
 
 ## Features
 
-- Drawing tools: pencil, eraser, fill, selection, rectangle, ellipse
-- Straight line while holding `Shift`
+- Drawing tools: pencil, eraser, fill, rectangle, ellipse, eyedropper, rectangular selection, smart selection
+- Straight line drawing with `Shift`
 - Undo with `Ctrl/Cmd + Z`
-- Cut, copy, paste selection with `Ctrl/Cmd + X`, `Ctrl/Cmd + C`, `Ctrl/Cmd + V`
-- Multi-layer workflow with add, remove, hide/show, rename on double click or `F2`
-- Layer transform with `Ctrl`: move, scale, rotate
+- Cut, copy, and paste selection with `Ctrl/Cmd + X`, `Ctrl/Cmd + C`, `Ctrl/Cmd + V`
+- Multi-layer workflow with add, remove, hide/show, reorder, multi-select, and rename on double click or `F2`
+- Layer transform with `Ctrl`: move, scale, rotate, horizontal and vertical flip
 - Keep proportions while scaling with `Ctrl + Shift`
+- Rotation snapping while holding `Shift`
 - Canvas resize with optional aspect ratio lock
-- Zoom with trackpad, `Ctrl` + wheel, and bottom zoom slider
+- Zoom with trackpad, wheel gestures, zoom slider, and centered canvas preview
 - Pan with `Space + drag`
-- Reference image overlay with visibility and opacity controls
-- Mini preview of the whole canvas
-- Palette with built-in colors and custom color adding
-- PNG export with save location picker when supported by the browser
+- Reference image overlay with visibility, opacity, scale, and move mode
+- Palette presets, custom palettes, custom colors, palette reordering, and color editing
+- Project save/load with File System Access API support when available
+- Autosave into the active project file
+- Animation timeline with frame add, duplicate, delete, reorder, onion skin, FPS control, and playback
+- Export menu with single-frame PNG and animation sprite sheet export
 - Rearrangement of editor panels and tool docking between left, center, and right areas
+- English and Russian localization
 
 ## Hotkeys
 
@@ -34,6 +38,8 @@ The project is focused on a desktop-style drawing workflow: layers, selection, t
 - `Space + drag`: pan the viewport
 - `F2`: rename active layer
 - `Esc`: clear selection or close popup
+
+Additional hotkeys are configurable from the settings popup.
 
 ## Stack
 
@@ -89,7 +95,13 @@ npm run dev
 npm run build
 npm run preview
 npm run lint
+npm run test:unit
 ```
+
+## Testing
+
+- `npm run test:unit` compiles and runs unit tests with the built-in `node:test` runner.
+- The first test suite covers pure canvas helpers in `src/widgets/canvas/model/canvasUtils.ts`.
 
 ## Usage Notes
 
@@ -97,19 +109,17 @@ npm run lint
 - The canvas settings panel contains canvas size controls and aspect lock.
 - Zoom is controlled from the bottom bar under the canvas.
 - Export uses the File System Access API when available; otherwise it falls back to browser download.
+- The welcome screen supports creating a blank project, opening an existing project, using built-in templates, and reopening recent files.
 
 ## Current Scope
 
-This repository currently focuses on the editor itself and local image export. It does not yet include:
+This repository currently focuses on the editor itself, local project workflows, and image export. It does not yet include:
 
-- project file save/load
 - redo history
-- animation timeline
 - backend synchronization
-
-## Known State
-
-The editor functionality described above is implemented in the app. At the same time, the repository still contains some older files and TypeScript issues outside the main current flow, so `npm run build` may require additional cleanup before passing without errors.
+- collaboration or cloud sync
+- marketplace, account system, or publishing flow
+- mobile-first touch UX
 
 ## License
 

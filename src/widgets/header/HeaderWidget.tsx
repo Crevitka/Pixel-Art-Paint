@@ -7,16 +7,20 @@ import { eventMatchesHotkey, useHotkeyContext } from '@/features/hotkeys'
 import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import {
-  deserializeAnimationFrames,
-  deserializeLayers,
   saveRecentProject,
-  readProjectFile,
-  serializeAnimationFrames,
-  serializeLayers,
-  serializeReferenceImage,
   type PixelArtProject
 } from '@/shared/lib/project'
+import {
+  applyProjectToEditor,
+  loadProjectFromFile
+} from '@/app/model/projectLifecycle'
 import { Button } from '@/shared/ui/Button'
+import {
+  buildCanvasExportArtifact,
+  buildProjectFile,
+  buildSpriteSheetExportArtifact,
+  writeProjectFile
+} from './model/projectFileUtils'
 import { SettingsWidget } from '@/widgets/settings'
 
 type SaveFilePicker = (options?: {
@@ -53,16 +57,6 @@ type SnackbarState = {
   status: Exclude<SaveStatus, 'idle'>
 } | null
 
-function getNextLayerNumber(layers: Array<{ id: string }>) {
-  const maxLayerNumber = layers.reduce((maxNumber, layer) => {
-    const match = /^layer-(\d+)$/.exec(layer.id)
-    if (!match) return maxNumber
-    return Math.max(maxNumber, Number(match[1]))
-  }, 1)
-
-  return maxLayerNumber + 1
-}
-
 export function HeaderWidget({
   currentProjectHandle,
   currentProjectName,
@@ -95,9 +89,11 @@ export function HeaderWidget({
   } = useColorContext()
   const { selectedTool, brushSize, loadToolProjectState } = useToolContext()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [snackbar, setSnackbar] = useState<SnackbarState>(null)
   const openProjectInputRef = useRef<HTMLInputElement>(null)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
   const lastSavedProjectTextRef = useRef<string | null>(null)
   const skipNextAutosaveRef = useRef(true)
   const autosaveRunIdRef = useRef(0)
@@ -107,57 +103,27 @@ export function HeaderWidget({
   }
 
   const buildProject = useCallback(async () => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const suggestedName =
-      currentProjectName ?? `pixel-art-project-${canvasSize.width}x${canvasSize.height}-${timestamp}.pap.json`
-
-    const project: PixelArtProject = {
-      version: 1,
-      canvas: {
-        canvasSize,
-        layers: serializeLayers(layers),
-        activeLayerId,
-        referenceImageUrl: await serializeReferenceImage(referenceImageUrl),
-        referenceOpacity,
-        referenceScale,
-        referenceOffset,
-        isReferenceVisible,
-        nextLayerNumber: getNextLayerNumber(layers)
-      },
-      animation: {
-        frames: serializeAnimationFrames(frames),
-        activeFrameId,
-        fps: animationFps,
-        nextFrameNumber:
-          frames.reduce((maxFrameNumber, frame) => {
-            const match = /^frame-(\d+)$/.exec(frame.id)
-            if (!match) return maxFrameNumber
-            return Math.max(maxFrameNumber, Number(match[1]))
-          }, 1) + 1
-      },
-      colors: {
-        selectedColor,
-        pickerColor,
-        paletteColors: [...paletteColors],
-        palettePresets: palettePresets.map((preset) => ({
-          ...preset,
-          colors: [...preset.colors]
-        })),
-        activePalettePresetId
-      },
-      tools: {
-        selectedTool,
-        brushSize
-      }
-    }
-
-    const projectText = JSON.stringify(project, null, 2)
-
-    return {
-      suggestedName,
-      project,
-      projectText
-    }
+    return buildProjectFile({
+      canvasSize,
+      frames,
+      activeFrameId,
+      animationFps,
+      layers,
+      activeLayerId,
+      referenceImageUrl,
+      referenceOpacity,
+      referenceScale,
+      referenceOffset,
+      isReferenceVisible,
+      selectedColor,
+      pickerColor,
+      paletteColors,
+      palettePresets,
+      activePalettePresetId,
+      selectedTool,
+      brushSize,
+      currentProjectName
+    })
   }, [
     activeFrameId,
     activeLayerId,
@@ -194,14 +160,11 @@ export function HeaderWidget({
         }
       : await buildProject()
 
-    const projectBlob = new Blob([builtProject.projectText], { type: 'application/json' })
     const handle = options?.handle ?? currentProjectHandle
 
     if (handle) {
       setSaveStatus('saving')
-      const writable = await handle.createWritable()
-      await writable.write(projectBlob)
-      await writable.close()
+      await writeProjectFile(handle, builtProject)
 
       onProjectFileChange(handle, builtProject.suggestedName)
       lastSavedProjectTextRef.current = builtProject.projectText
@@ -233,10 +196,13 @@ export function HeaderWidget({
   }, [buildProject, currentProjectHandle, onProjectFileChange])
 
   const handleExportPng = async () => {
-    const exportScale = 16
+    const exportArtifact = buildCanvasExportArtifact({
+      layers,
+      canvasSize
+    })
     const exportCanvas = document.createElement('canvas')
-    exportCanvas.width = canvasSize.width * exportScale
-    exportCanvas.height = canvasSize.height * exportScale
+    exportCanvas.width = exportArtifact.width
+    exportCanvas.height = exportArtifact.height
 
     const ctx = exportCanvas.getContext('2d')
     if (!ctx) return
@@ -244,20 +210,12 @@ export function HeaderWidget({
     ctx.imageSmoothingEnabled = false
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
+    exportArtifact.pixels.forEach((color, key) => {
+      const [x, y] = key.split(',').map(Number)
+      ctx.fillStyle = color
+      ctx.fillRect(x, y, 1, 1)
+    })
 
-    layers
-      .filter((layer) => layer.visible)
-      .reverse()
-      .forEach((layer) => {
-        layer.pixels.forEach((color, key) => {
-          const [x, y] = key.split(',').map(Number)
-          ctx.fillStyle = color
-          ctx.fillRect(x * exportScale, y * exportScale, exportScale, exportScale)
-        })
-      })
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const suggestedName = `pixel-art-${canvasSize.width}x${canvasSize.height}-${timestamp}.png`
     const pngBlob = await new Promise<Blob | null>((resolve) => {
       exportCanvas.toBlob(resolve, 'image/png')
     })
@@ -271,7 +229,7 @@ export function HeaderWidget({
     if (filePicker) {
       try {
         const handle = await filePicker({
-          suggestedName,
+          suggestedName: exportArtifact.suggestedName,
           types: [
             {
               description: 'PNG image',
@@ -294,7 +252,76 @@ export function HeaderWidget({
     }
 
     const link = document.createElement('a')
-    link.download = suggestedName
+    link.download = exportArtifact.suggestedName
+    link.href = URL.createObjectURL(pngBlob)
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
+  const handleExportSpriteSheet = async () => {
+    const exportArtifact = buildSpriteSheetExportArtifact({
+      frames,
+      canvasSize
+    })
+    const exportCanvas = document.createElement('canvas')
+    exportCanvas.width = exportArtifact.width
+    exportCanvas.height = exportArtifact.height
+
+    const ctx = exportCanvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.imageSmoothingEnabled = false
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
+    exportArtifact.pixels.forEach((color, key) => {
+      const [x, y] = key.split(',').map(Number)
+      ctx.fillStyle = color
+      ctx.fillRect(x, y, 1, 1)
+    })
+
+    const pngBlob = await new Promise<Blob | null>((resolve) => {
+      exportCanvas.toBlob(resolve, 'image/png')
+    })
+
+    if (!pngBlob) {
+      setSnackbar({
+        message: t('header.exportError'),
+        status: 'error'
+      })
+      return
+    }
+
+    const filePicker = (window as Window & {
+      showSaveFilePicker?: SaveFilePicker
+    }).showSaveFilePicker
+
+    if (filePicker) {
+      try {
+        const handle = await filePicker({
+          suggestedName: exportArtifact.suggestedName,
+          types: [
+            {
+              description: 'PNG sprite sheet',
+              accept: {
+                'image/png': ['.png']
+              }
+            }
+          ]
+        })
+
+        const writable = await handle.createWritable()
+        await writable.write(pngBlob)
+        await writable.close()
+        return
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return
+        }
+      }
+    }
+
+    const link = document.createElement('a')
+    link.download = exportArtifact.suggestedName
     link.href = URL.createObjectURL(pngBlob)
     link.click()
     URL.revokeObjectURL(link.href)
@@ -423,38 +450,28 @@ export function HeaderWidget({
   }, [handleSaveProject, hotkeys.saveProject])
 
   const loadProject = async (file: File, fileHandle: FileSystemFileHandle | null = null) => {
-    const project = await readProjectFile(file)
-    if (project.version !== 1) {
-      throw new Error('Unsupported project version')
-    }
-
-    loadCanvasProjectState({
-      canvasSize: project.canvas.canvasSize,
-      layers: deserializeLayers(project.canvas.layers),
-      activeLayerId: project.canvas.activeLayerId,
-      frames: project.animation?.frames ? deserializeAnimationFrames(project.animation.frames) : undefined,
-      activeFrameId: project.animation?.activeFrameId,
-      animationFps: project.animation?.fps,
-      nextFrameNumber: project.animation?.nextFrameNumber,
-      referenceImageUrl: project.canvas.referenceImageUrl,
-      referenceOpacity: project.canvas.referenceOpacity,
-      referenceScale: project.canvas.referenceScale,
-      referenceOffset: project.canvas.referenceOffset ?? { x: 0, y: 0 },
-      isReferenceVisible: project.canvas.isReferenceVisible,
-      nextLayerNumber: project.canvas.nextLayerNumber
+    const project = await loadProjectFromFile(file)
+    applyProjectToEditor(project, {
+      loadCanvasProjectState,
+      loadColorProjectState,
+      loadToolProjectState,
+      setCurrentProjectHandle: (handle) => onProjectFileChange(handle, file.name),
+      setCurrentProjectName: (_name) => undefined,
+      setPanelBlocks: () => undefined,
+      setDraggingBlockId: () => undefined,
+      setDragOverTarget: () => undefined,
+      navigateToEditor: () => undefined,
+      saveRecentProject
+    }, {
+      projectHandle: fileHandle,
+      projectName: file.name,
+      recentName: file.name
     })
 
-    loadColorProjectState(project.colors)
-    loadToolProjectState(project.tools)
     lastSavedProjectTextRef.current = JSON.stringify(project, null, 2)
     skipNextAutosaveRef.current = true
     setSaveStatus('idle')
     setSnackbar(null)
-    onProjectFileChange(fileHandle, file.name)
-    await saveRecentProject({
-      name: file.name,
-      project
-    })
   }
 
   useEffect(() => {
@@ -488,6 +505,30 @@ export function HeaderWidget({
       window.clearTimeout(timeoutId)
     }
   }, [snackbar])
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return
+      if (exportMenuRef.current?.contains(event.target)) return
+      setIsExportMenuOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsExportMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isExportMenuOpen])
 
   const snackbarClassName =
     snackbar?.status === 'error'
@@ -540,7 +581,7 @@ export function HeaderWidget({
   return (
     <>
       <motion.header
-        className="glass-effect rounded-2xl p-5 mb-5 flex justify-between items-center"
+        className="glass-effect relative z-[140] rounded-2xl p-5 mb-5 flex justify-between items-center"
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
@@ -589,13 +630,49 @@ export function HeaderWidget({
             <Save className="w-4 h-4" />
             {t('header.saveProject')}
           </Button>
-          <Button
-            onClick={handleExportPng}
-            variant="primary"
-          >
-            <Download className="w-4 h-4" />
-            {t('header.exportPng')}
-          </Button>
+          <div ref={exportMenuRef} className="relative">
+            <Button
+              onClick={() => setIsExportMenuOpen((currentValue) => !currentValue)}
+              variant="primary"
+            >
+              <Download className="w-4 h-4" />
+              {t('header.export')}
+            </Button>
+            {isExportMenuOpen ? (
+              <motion.div
+                className="absolute right-0 top-full z-[120] mt-3 w-64 rounded-2xl border border-white/70 bg-white/90 p-3 shadow-2xl backdrop-blur-xl"
+                initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.18 }}
+              >
+                <p className="px-2 pb-2 text-sm font-semibold text-gray-700">
+                  {t('header.exportChoose')}
+                </p>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false)
+                      void handleExportPng()
+                    }}
+                    className="w-full rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-3 text-left text-sm font-medium text-gray-700 transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-700"
+                  >
+                    {t('header.exportPng')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExportMenuOpen(false)
+                      void handleExportSpriteSheet()
+                    }}
+                    className="w-full rounded-xl border-2 border-gray-200 bg-gray-50 px-3 py-3 text-left text-sm font-medium text-gray-700 transition-colors hover:border-primary-400 hover:bg-primary-50 hover:text-primary-700"
+                  >
+                    {t('header.exportSpriteSheet')}
+                  </button>
+                </div>
+              </motion.div>
+            ) : null}
+          </div>
         </div>
       </motion.header>
       {snackbar ? (

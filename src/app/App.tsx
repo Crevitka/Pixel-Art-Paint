@@ -5,14 +5,11 @@ import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import {
   clearSessionProjectHandle,
-  deserializeAnimationFrames,
-  deserializeLayers,
   getSessionProject,
   getSessionProjectHandle,
   getProjectTemplates,
   getRecentProjectById,
   getRecentProjects,
-  readProjectFile,
   saveSessionProject,
   saveSessionProjectHandle,
   saveProjectTemplate,
@@ -23,18 +20,27 @@ import {
   subscribeToProjectTemplates,
   subscribeToRecentProjects,
   type PixelArtProject,
+  type RecentProjectEntry,
   type StartTemplate
 } from '@/shared/lib/project'
+import {
+  applyProjectToEditor,
+  loadProjectFromFile
+} from '@/app/model/projectLifecycle'
+import {
+  buildSessionPayload,
+  INITIAL_PANEL_BLOCKS,
+  normalizePanelBlocks,
+  PANEL_ACCEPTED_BLOCKS
+} from '@/app/model/sessionPersistence'
+import type { PanelBlocks, ToolbarBlockId, ToolbarPanelId } from '@/app/model/sessionPersistence'
 import { EditorPage } from '@/pages/editor'
 import { WelcomePage } from '@/pages/welcome'
-import type { ToolbarBlockId, ToolbarPanelId } from '@/widgets/toolbar'
 
 type DragOverTarget = {
   panelId: ToolbarPanelId
   blockId: ToolbarBlockId | null
 } | null
-
-type PanelBlocks = Record<ToolbarPanelId, ToolbarBlockId[]>
 
 type ProjectFileHandle = FileSystemFileHandle | null
 
@@ -45,18 +51,6 @@ type OpenFilePicker = (options?: {
     accept: Record<string, string[]>
   }>
 }) => Promise<FileSystemFileHandle[]>
-
-const INITIAL_PANEL_BLOCKS: PanelBlocks = {
-  left: ['tools', 'reference', 'palette', 'brush', 'layers'],
-  center: [],
-  right: []
-}
-
-const PANEL_ACCEPTED_BLOCKS: Record<ToolbarPanelId, ToolbarBlockId[]> = {
-  left: ['tools', 'reference', 'palette', 'brush', 'layers'],
-  center: ['tools'],
-  right: ['tools', 'reference', 'palette', 'brush', 'layers']
-}
 
 function createProjectFromTemplate(template: StartTemplate, defaultLayerName: string): PixelArtProject {
   const templateColors = template.paletteColors.length > 0
@@ -161,8 +155,8 @@ export function App() {
   const { selectedTool, brushSize, loadToolProjectState } = useToolContext()
 
   const [pathname, setPathname] = useState(() => window.location.pathname)
-  const [recentProjects, setRecentProjects] = useState(() => getRecentProjects())
-  const [projectTemplates, setProjectTemplates] = useState(() => getProjectTemplates(locale))
+  const [recentProjects, setRecentProjects] = useState<RecentProjectEntry[]>([])
+  const [projectTemplates, setProjectTemplates] = useState<StartTemplate[]>([])
   const [currentProjectHandle, setCurrentProjectHandle] = useState<ProjectFileHandle>(null)
   const [currentProjectName, setCurrentProjectName] = useState<string | null>(null)
   const [panelBlocks, setPanelBlocks] = useState<PanelBlocks>(INITIAL_PANEL_BLOCKS)
@@ -183,39 +177,28 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    const loadRecentProjects = async () => {
+      setRecentProjects(await getRecentProjects())
+    }
+
+    void loadRecentProjects()
+
     return subscribeToRecentProjects(() => {
-      setRecentProjects(getRecentProjects())
+      void loadRecentProjects()
     })
   }, [])
 
   useEffect(() => {
+    const loadProjectTemplates = async () => {
+      setProjectTemplates(await getProjectTemplates(locale))
+    }
+
+    void loadProjectTemplates()
+
     return subscribeToProjectTemplates(() => {
-      setProjectTemplates(getProjectTemplates(locale))
+      void loadProjectTemplates()
     })
   }, [locale])
-
-  useEffect(() => {
-    setProjectTemplates(getProjectTemplates(locale))
-  }, [locale])
-
-  const normalizePanelBlocks = (rawPanelBlocks?: {
-    left: string[]
-    center: string[]
-    right: string[]
-  }): PanelBlocks => {
-    if (!rawPanelBlocks) return INITIAL_PANEL_BLOCKS
-
-    const normalizePanel = (panelId: ToolbarPanelId) =>
-      rawPanelBlocks[panelId].filter((blockId): blockId is ToolbarBlockId =>
-        PANEL_ACCEPTED_BLOCKS[panelId].includes(blockId as ToolbarBlockId)
-      )
-
-    return {
-      left: normalizePanel('left'),
-      center: normalizePanel('center'),
-      right: normalizePanel('right')
-    }
-  }
 
   const navigateTo = (nextPathname: '/' | '/editor') => {
     if (window.location.pathname !== nextPathname) {
@@ -242,45 +225,22 @@ export function App() {
       saveToRecent?: boolean
     }
   ) => {
-    loadCanvasProjectState({
-      canvasSize: project.canvas.canvasSize,
-      layers: deserializeLayers(project.canvas.layers),
-      activeLayerId: project.canvas.activeLayerId,
-      frames: project.animation?.frames ? deserializeAnimationFrames(project.animation.frames) : undefined,
-      activeFrameId: project.animation?.activeFrameId,
-      animationFps: project.animation?.fps,
-      nextFrameNumber: project.animation?.nextFrameNumber,
-      referenceImageUrl: project.canvas.referenceImageUrl,
-      referenceOpacity: project.canvas.referenceOpacity,
-      referenceScale: project.canvas.referenceScale,
-      referenceOffset: project.canvas.referenceOffset ?? { x: 0, y: 0 },
-      isReferenceVisible: project.canvas.isReferenceVisible,
-      nextLayerNumber: project.canvas.nextLayerNumber
-    })
-
-    loadColorProjectState(project.colors)
-    loadToolProjectState(project.tools)
-    setCurrentProjectHandle(options?.projectHandle ?? null)
-    setCurrentProjectName(options?.projectName ?? options?.recentName ?? null)
-    setPanelBlocks(options?.panelBlocks ?? INITIAL_PANEL_BLOCKS)
-    setDraggingBlockId(null)
-    setDragOverTarget(null)
-
-    if (options?.recentName && options?.saveToRecent !== false) {
-      void saveRecentProject({
-        name: options.recentName,
-        project
-      })
-    }
-
-    navigateTo('/editor')
+    applyProjectToEditor(project, {
+      loadCanvasProjectState,
+      loadColorProjectState,
+      loadToolProjectState,
+      setCurrentProjectHandle,
+      setCurrentProjectName,
+      setPanelBlocks,
+      setDraggingBlockId,
+      setDragOverTarget,
+      navigateToEditor: () => navigateTo('/editor'),
+      saveRecentProject
+    }, options)
   }
 
   const loadProjectFile = async (file: File, projectHandle: ProjectFileHandle = null) => {
-    const project = await readProjectFile(file)
-    if (project.version !== 1) {
-      throw new Error('Unsupported project version')
-    }
+    const project = await loadProjectFromFile(file)
     applyProject(project, {
       recentName: file.name,
       projectHandle,
@@ -345,8 +305,7 @@ export function App() {
   }
 
   const handleSaveTemplate = (template: Omit<StartTemplate, 'id' | 'isBuiltIn'>) => {
-    saveProjectTemplate(template)
-    setProjectTemplates(getProjectTemplates(locale))
+    void saveProjectTemplate(template)
   }
 
   const handleOpenRecentProject = async (recentProject: { id: string; name: string }) => {
@@ -428,7 +387,7 @@ export function App() {
     let cancelled = false
 
     const restoreSession = async () => {
-      const sessionProject = getSessionProject()
+      const sessionProject = await getSessionProject()
       if (!sessionProject || sessionProject.pathname !== '/editor') {
         setIsSessionReady(true)
         return
@@ -441,7 +400,7 @@ export function App() {
           const handle = await getSessionProjectHandle()
           if (handle) {
             const file = await handle.getFile()
-            const project = await readProjectFile(file)
+            const project = await loadProjectFromFile(file)
             if (!cancelled) {
               applyProject(project, {
                 projectHandle: handle,
@@ -483,16 +442,14 @@ export function App() {
 
     const timeoutId = window.setTimeout(() => {
       void (async () => {
-        const sessionPayload = {
-          projectName: currentProjectName,
-          pathname: '/editor' as const,
-          hasFileHandle: Boolean(currentProjectHandle),
-          draftProject: currentProjectHandle ? null : await buildCurrentProject(),
-          panelBlocks,
-          updatedAt: new Date().toISOString()
-        }
+        const sessionPayload = buildSessionPayload({
+          currentProjectName,
+          currentProjectHandle,
+          draftProject: await buildCurrentProject(),
+          panelBlocks
+        })
 
-        saveSessionProject(sessionPayload)
+        await saveSessionProject(sessionPayload)
 
         if (currentProjectHandle) {
           await saveSessionProjectHandle(currentProjectHandle)

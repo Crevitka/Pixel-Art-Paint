@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "outDir": ".codex-tests",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "src/shared/types/index.ts",
+    "src/shared/lib/project.ts",
+    "src/shared/lib/projectStorage.ts",
+    "src/app/model/sessionPersistence.ts",
+    "src/app/model/projectLifecycle.ts",
+    "src/widgets/header/model/projectFileUtils.ts",
+    "src/features/i18n/model/translations.ts",
+    "src/widgets/canvas/model/canvasUtils.ts",
+    "src/widgets/canvas/model/transformUtils.ts",
+    "src/widgets/header/model/exportUtils.ts",
+    "tests/**/*.ts"
+  ]
+}

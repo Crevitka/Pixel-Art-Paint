@@ -112,15 +112,15 @@ export function WelcomePage({
   return (
     <>
       <motion.div
-        className="max-w-7xl mx-auto h-screen overflow-hidden p-6 flex items-center justify-center"
+        className="mx-auto flex h-screen max-w-7xl items-center justify-center overflow-hidden p-6"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="relative w-full overflow-hidden rounded-[32px] border border-white/50 bg-white/80 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.18)] backdrop-blur-xl lg:p-10">
+        <div className="relative flex max-h-[calc(100vh-48px)] w-full flex-col overflow-hidden rounded-[32px] border border-white/50 bg-white/80 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.18)] backdrop-blur-xl lg:p-10">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(99,102,241,0.18),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(34,197,94,0.14),_transparent_28%)]" />
-          <div className="relative grid gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-            <div className="space-y-8">
+          <div className="relative grid min-h-0 gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <div className="flex min-h-0 flex-col gap-8">
               <div className="space-y-4">
                 <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700">
                   <Sparkles className="h-4 w-4" />
@@ -148,12 +148,12 @@ export function WelcomePage({
               </div>
 
               {recentProjects.length > 0 ? (
-                <div className="space-y-3">
+                <div className="flex min-h-0 flex-1 flex-col space-y-3">
                   <div>
                     <h2 className="text-lg font-semibold text-slate-900">{t('welcome.recent.title')}</h2>
                     <p className="text-sm text-slate-500">{t('welcome.recent.subtitle')}</p>
                   </div>
-                  <div className="grid gap-3">
+                  <div className="grid min-h-0 gap-3 overflow-y-auto pr-2">
                     {recentProjects.map((recentProject) => (
                       <button
                         key={recentProject.id}

@@ -44,7 +44,7 @@ export function EditorPage({
 
   return (
     <motion.div
-      className="max-w-7xl mx-auto p-5 h-screen overflow-hidden"
+      className="max-w-7xl mx-auto p-5 h-screen"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
@@ -54,7 +54,7 @@ export function EditorPage({
         currentProjectName={currentProjectName}
         onProjectFileChange={onProjectFileChange}
       />
-      <main className={`grid grid-cols-1 ${desktopGridClass} gap-5 h-[calc(100vh-140px)] min-h-0`}>
+      <main className={`grid grid-cols-1 ${desktopGridClass} gap-5 h-[calc(100vh-140px)] min-h-0 overflow-hidden`}>
         <div className="hidden lg:block min-h-0">
           <ToolbarWidget
             panelId="left"

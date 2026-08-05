@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test:unit": "tsc -p tsconfig.tests.json && node --test .codex-tests/tests/**/*.test.js"
   },
   "dependencies": {
     "clsx": "^2.1.0",
