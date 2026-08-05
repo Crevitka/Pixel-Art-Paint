@@ -21,6 +21,7 @@ import {
   buildSpriteSheetExportArtifact,
   writeProjectFile
 } from './model/projectFileUtils'
+import { useProjectSaveFlow } from './model/useProjectSaveFlow'
 import { SettingsWidget } from '@/widgets/settings'
 
 type SaveFilePicker = (options?: {
@@ -49,13 +50,6 @@ type HeaderWidgetProps = {
   currentProjectName: string | null
   onProjectFileChange: (handle: FileSystemFileHandle | null, name: string | null) => void
 }
-
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-
-type SnackbarState = {
-  message: string
-  status: Exclude<SaveStatus, 'idle'>
-} | null
 
 export function HeaderWidget({
   currentProjectHandle,
@@ -90,13 +84,8 @@ export function HeaderWidget({
   const { selectedTool, brushSize, loadToolProjectState } = useToolContext()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [snackbar, setSnackbar] = useState<SnackbarState>(null)
   const openProjectInputRef = useRef<HTMLInputElement>(null)
   const exportMenuRef = useRef<HTMLDivElement>(null)
-  const lastSavedProjectTextRef = useRef<string | null>(null)
-  const skipNextAutosaveRef = useRef(true)
-  const autosaveRunIdRef = useRef(0)
 
   const handleClear = () => {
     clearCanvas()
@@ -167,12 +156,6 @@ export function HeaderWidget({
       await writeProjectFile(handle, builtProject)
 
       onProjectFileChange(handle, builtProject.suggestedName)
-      lastSavedProjectTextRef.current = builtProject.projectText
-      setSaveStatus('saved')
-      setSnackbar({
-        message: t('header.saved'),
-        status: 'saved'
-      })
 
       try {
         await saveRecentProject({
@@ -193,7 +176,24 @@ export function HeaderWidget({
       handle: null,
       ...builtProject
     }
-  }, [buildProject, currentProjectHandle, onProjectFileChange])
+  }, [buildProject, currentProjectHandle, onProjectFileChange, t])
+
+  const {
+    setSaveStatus,
+    setSnackbar,
+    snackbar,
+    snackbarClassName,
+    handleSaveProject,
+    markProjectLoaded
+  } = useProjectSaveFlow({
+    currentProjectHandle,
+    buildProject,
+    persistProject,
+    saveRecentProject,
+    savingMessage: t('header.saving'),
+    savedMessage: t('header.saved'),
+    saveErrorMessage: t('header.saveError')
+  })
 
   const handleExportPng = async () => {
     const exportArtifact = buildCanvasExportArtifact({
@@ -327,113 +327,6 @@ export function HeaderWidget({
     URL.revokeObjectURL(link.href)
   }
 
-  const handleSaveProject = async () => {
-    if (currentProjectHandle) {
-      try {
-        await persistProject()
-        return
-      } catch {
-        setSaveStatus('error')
-        // Fall back to Save As when the existing handle is no longer writable.
-      }
-    }
-
-    const filePicker = (window as Window & {
-      showSaveFilePicker?: SaveFilePicker
-    }).showSaveFilePicker
-
-    if (filePicker) {
-      try {
-        const builtProject = await buildProject()
-        const handle = await filePicker({
-          suggestedName: builtProject.suggestedName,
-          types: [
-            {
-              description: 'Pixel Art Paint project',
-              accept: {
-                'application/json': ['.pap.json', '.json']
-              }
-            }
-          ]
-        })
-
-        await persistProject({
-          handle: handle as FileSystemFileHandle,
-          suggestedName: builtProject.suggestedName,
-          project: builtProject.project,
-          projectText: builtProject.projectText
-        })
-        return
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return
-        }
-        setSaveStatus('error')
-      }
-    }
-
-    const builtProject = await buildProject()
-    const projectBlob = new Blob([builtProject.projectText], { type: 'application/json' })
-    const link = document.createElement('a')
-    link.download = builtProject.suggestedName
-    link.href = URL.createObjectURL(projectBlob)
-    link.click()
-    URL.revokeObjectURL(link.href)
-    lastSavedProjectTextRef.current = builtProject.projectText
-    setSaveStatus('saved')
-    setSnackbar({
-      message: t('header.saved'),
-      status: 'saved'
-    })
-    await saveRecentProject({
-      name: builtProject.suggestedName,
-      project: builtProject.project
-    })
-  }
-
-  useEffect(() => {
-    if (!currentProjectHandle) {
-      skipNextAutosaveRef.current = true
-      return
-    }
-
-    if (skipNextAutosaveRef.current) {
-      skipNextAutosaveRef.current = false
-      return
-    }
-
-    const runId = autosaveRunIdRef.current + 1
-    autosaveRunIdRef.current = runId
-
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const builtProject = await buildProject()
-
-        if (lastSavedProjectTextRef.current === builtProject.projectText) {
-          return
-        }
-
-        if (autosaveRunIdRef.current !== runId) {
-          return
-        }
-
-        await persistProject({
-          handle: currentProjectHandle,
-          suggestedName: builtProject.suggestedName,
-          project: builtProject.project,
-          projectText: builtProject.projectText
-        })
-      } catch {
-        setSaveStatus('error')
-        // Ignore autosave failures and keep manual save available.
-      }
-    }, 1200)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [buildProject, currentProjectHandle, persistProject])
-
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!eventMatchesHotkey(event, hotkeys.saveProject)) return
@@ -468,43 +361,8 @@ export function HeaderWidget({
       recentName: file.name
     })
 
-    lastSavedProjectTextRef.current = JSON.stringify(project, null, 2)
-    skipNextAutosaveRef.current = true
-    setSaveStatus('idle')
-    setSnackbar(null)
+    markProjectLoaded(project)
   }
-
-  useEffect(() => {
-    if (saveStatus === 'saving') {
-      setSnackbar({
-        message: t('header.saving'),
-        status: 'saving'
-      })
-      return
-    }
-
-    if (saveStatus === 'error') {
-      setSnackbar({
-        message: t('header.saveError'),
-        status: 'error'
-      })
-      return
-    }
-  }, [saveStatus, t])
-
-  useEffect(() => {
-    if (!snackbar || snackbar.status === 'saving') return
-
-    const timeoutId = window.setTimeout(() => {
-      setSnackbar((currentSnackbar) => (
-        currentSnackbar?.status === 'saving' ? currentSnackbar : null
-      ))
-    }, 2200)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [snackbar])
 
   useEffect(() => {
     if (!isExportMenuOpen) return
@@ -529,13 +387,6 @@ export function HeaderWidget({
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isExportMenuOpen])
-
-  const snackbarClassName =
-    snackbar?.status === 'error'
-      ? 'border-red-200 bg-red-50 text-red-700'
-      : snackbar?.status === 'saving'
-        ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
 
   const handleOpenProject = async () => {
     const filePicker = (window as Window & {
