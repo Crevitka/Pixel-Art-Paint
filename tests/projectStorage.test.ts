@@ -454,3 +454,54 @@ test('projectStorage migrates session draft into indexedDB and clears it correct
     })
   }
 })
+
+test('projectStorage upgrades an existing indexedDB schema that is missing the session store', async () => {
+  const { windowMock, state } = createWindowMock()
+  const previousWindow = globalThis.window
+
+  Object.defineProperty(globalThis, 'window', {
+    value: windowMock,
+    configurable: true,
+    writable: true
+  })
+
+  try {
+    state.version = 3
+    state.stores.set('handles', {
+      records: new Map<string, unknown>()
+    })
+    state.stores.set('recent-projects', {
+      keyPath: 'id',
+      records: new Map<string, unknown>()
+    })
+    state.stores.set('project-templates', {
+      keyPath: 'id',
+      records: new Map<string, unknown>()
+    })
+
+    const sessionState: SessionProjectState = {
+      projectName: 'Schema upgrade session',
+      pathname: '/editor',
+      hasFileHandle: false,
+      draftProject: createProject('Upgrade draft', 48, 48),
+      panelBlocks: {
+        left: ['tools', 'palette'],
+        center: [],
+        right: ['layers']
+      },
+      updatedAt: '2026-08-05T18:00:00.000Z'
+    }
+
+    await saveSessionProject(sessionState)
+
+    assert.equal(state.version, 4)
+    assert.ok(state.stores.has('session-project'))
+    assert.deepEqual(await getSessionProject(), sessionState)
+  } finally {
+    Object.defineProperty(globalThis, 'window', {
+      value: previousWindow,
+      configurable: true,
+      writable: true
+    })
+  }
+})

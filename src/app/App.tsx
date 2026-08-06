@@ -16,13 +16,18 @@ import {
   applyProjectToEditor,
   loadProjectFromFile
 } from '@/app/model/projectLifecycle'
-import { INITIAL_PANEL_BLOCKS, type PanelBlocks } from '@/app/model/sessionPersistence'
+import type { PanelBlocks } from '@/app/model/sessionPersistence'
 import { useAppShell } from '@/app/model/useAppShell'
 import { useAppSessionPersistence } from '@/app/model/useAppSessionPersistence'
+import {
+  createBlankProject,
+  createProjectFromTemplate,
+  getLoadedProjectApplyOptions,
+  getNewProjectApplyOptions,
+  getRecentProjectApplyOptions
+} from '@/app/model/appProjectUtils'
 import { EditorPage } from '@/pages/editor'
 import { WelcomePage } from '@/pages/welcome'
-
-type ProjectFileHandle = FileSystemFileHandle | null
 
 type OpenFilePicker = (options?: {
   multiple?: boolean
@@ -31,82 +36,7 @@ type OpenFilePicker = (options?: {
     accept: Record<string, string[]>
   }>
 }) => Promise<FileSystemFileHandle[]>
-
-function createProjectFromTemplate(template: StartTemplate, defaultLayerName: string): PixelArtProject {
-  const templateColors = template.paletteColors.length > 0
-    ? [...template.paletteColors]
-    : ['#000000', '#ffffff']
-
-  return {
-    version: 1,
-    canvas: {
-      canvasSize: template.size,
-      layers: [
-        {
-          id: 'layer-1',
-          name: defaultLayerName,
-          visible: true,
-          pixels: []
-        }
-      ],
-      activeLayerId: 'layer-1',
-      referenceImageUrl: null,
-      referenceOpacity: 0.45,
-      referenceScale: 1,
-      referenceOffset: { x: 0, y: 0 },
-      isReferenceVisible: true,
-      nextLayerNumber: 2
-    },
-    animation: {
-      frames: [
-        {
-          id: 'frame-1',
-          name: 'Frame 1',
-          layers: [
-            {
-              id: 'layer-1',
-              name: defaultLayerName,
-              visible: true,
-              pixels: []
-            }
-          ],
-          activeLayerId: 'layer-1',
-          nextLayerNumber: 2
-        }
-      ],
-      activeFrameId: 'frame-1',
-      fps: 8,
-      nextFrameNumber: 2
-    },
-    colors: {
-      selectedColor: templateColors[0],
-      pickerColor: templateColors[0],
-      paletteColors: templateColors,
-      palettePresets: [
-        {
-          id: template.id,
-          label: template.title,
-          colors: templateColors
-        }
-      ],
-      activePalettePresetId: template.id
-    },
-    tools: {
-      selectedTool: 'pencil',
-      brushSize: 1
-    }
-  }
-}
-
-function createBlankProject(title: string, description: string, defaultLayerName: string) {
-  return createProjectFromTemplate({
-    id: 'blank-32',
-    title,
-    description,
-    size: { width: 32, height: 32 },
-    paletteColors: ['#000000', '#ffffff']
-  }, defaultLayerName)
-}
+type ProjectFileHandle = FileSystemFileHandle | null
 
 export function App() {
   const { locale, t } = useI18nContext()
@@ -272,11 +202,7 @@ export function App() {
     projectHandle: ProjectFileHandle = null
   ) => {
     const project = await loadProjectFromFile(file)
-    applyProject(project, {
-      recentName: file.name,
-      projectHandle,
-      projectName: file.name
-    })
+    applyProject(project, getLoadedProjectApplyOptions(file.name, projectHandle))
   }, [applyProject])
 
   const handleOpenProject = async () => {
@@ -326,24 +252,14 @@ export function App() {
         t('project.blankDescription'),
         t('project.defaultLayer', { number: 1 })
       ),
-      {
-        recentName: t('project.newProjectName'),
-        projectHandle: null,
-        projectName: null,
-        panelBlocks: INITIAL_PANEL_BLOCKS
-      }
+      getNewProjectApplyOptions(t('project.newProjectName'))
     )
   }
 
   const handleCreateFromTemplate = (template: StartTemplate) => {
     applyProject(
       createProjectFromTemplate(template, t('project.defaultLayer', { number: 1 })),
-      {
-        recentName: template.title,
-        projectHandle: null,
-        projectName: null,
-        panelBlocks: INITIAL_PANEL_BLOCKS
-      }
+      getNewProjectApplyOptions(template.title)
     )
   }
 
@@ -351,11 +267,7 @@ export function App() {
     const project = await getRecentProjectById(recentProject.id)
     if (!project) return
 
-    applyProject(project, {
-      recentName: recentProject.name,
-      projectHandle: null,
-      projectName: recentProject.name
-    })
+    applyProject(project, getRecentProjectApplyOptions(recentProject.name))
   }
 
   if (!isSessionReady && pathname === '/editor') {

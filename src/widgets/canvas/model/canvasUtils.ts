@@ -14,6 +14,12 @@ export type ClipboardSelection = {
   sourceBounds: LayerBounds
 }
 
+export type PastedClipboardState = {
+  nextPixels: Map<string, string>
+  nextSelectionBounds: LayerBounds
+  nextClipboard: ClipboardSelection
+}
+
 export function getLayerBounds(pixels: Map<string, string>): LayerBounds | null {
   let minX = Infinity
   let minY = Infinity
@@ -206,5 +212,54 @@ export function copyPixelsInSelectionKeys(
     height: bounds.maxY - bounds.minY + 1,
     pixels: clipboardPixels,
     sourceBounds: { ...bounds }
+  }
+}
+
+export function pasteClipboardPixels(
+  targetPixels: Map<string, string>,
+  clipboard: ClipboardSelection,
+  offsetX: number,
+  offsetY: number,
+  canvasSize: CanvasSize
+) {
+  const nextPixels = new Map(targetPixels)
+
+  clipboard.pixels.forEach((color, key) => {
+    const [relativeX, relativeY] = key.split(',').map(Number)
+    const x = offsetX + relativeX
+    const y = offsetY + relativeY
+
+    if (x < 0 || y < 0 || x >= canvasSize.width || y >= canvasSize.height) return
+    nextPixels.set(`${x},${y}`, color)
+  })
+
+  return nextPixels
+}
+
+export function getPastedClipboardState(
+  targetPixels: Map<string, string>,
+  clipboard: ClipboardSelection,
+  canvasSize: CanvasSize
+): PastedClipboardState {
+  const pasteX = Math.max(0, Math.min(canvasSize.width - 1, clipboard.sourceBounds.minX))
+  const pasteY = Math.max(0, Math.min(canvasSize.height - 1, clipboard.sourceBounds.minY))
+  const nextPixels = pasteClipboardPixels(targetPixels, clipboard, pasteX, pasteY, canvasSize)
+  const nextSelectionBounds = clampBoundsToCanvas(
+    {
+      minX: pasteX,
+      minY: pasteY,
+      maxX: pasteX + clipboard.width - 1,
+      maxY: pasteY + clipboard.height - 1
+    },
+    canvasSize
+  )
+
+  return {
+    nextPixels,
+    nextSelectionBounds,
+    nextClipboard: {
+      ...clipboard,
+      sourceBounds: nextSelectionBounds
+    }
   }
 }

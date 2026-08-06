@@ -8,11 +8,13 @@ import {
   type PixelArtProject
 } from '@/shared/lib/project'
 import {
-  buildSessionPayload,
-  normalizePanelBlocks,
   type PanelBlocks
 } from './sessionPersistence'
 import { loadProjectFromFile } from './projectLifecycle'
+import {
+  persistEditorSession,
+  restoreEditorSession
+} from './appSessionPersistenceUtils'
 
 type ProjectFileHandle = FileSystemFileHandle | null
 
@@ -53,51 +55,28 @@ export function useAppSessionPersistence(options: UseAppSessionPersistenceOption
     let cancelled = false
 
     const restoreSession = async () => {
-      const sessionProject = await getSessionProject()
-      if (!sessionProject || sessionProject.pathname !== '/editor') {
-        setIsSessionReady(true)
-        return
-      }
-
-      const restoredPanelBlocks = normalizePanelBlocks(sessionProject.panelBlocks)
-
-      if (sessionProject.hasFileHandle) {
-        try {
-          const handle = await getSessionProjectHandle()
-          if (handle) {
-            const file = await handle.getFile()
-            const project = await loadProjectFromFile(file)
-            if (!cancelled) {
-              applyProjectRef.current(project, {
-                projectHandle: handle,
-                projectName: sessionProject.projectName ?? file.name,
-                panelBlocks: restoredPanelBlocks,
-                saveToRecent: false
-              })
-              setCurrentProjectHandleRef.current(handle)
-              setCurrentProjectNameRef.current(sessionProject.projectName ?? file.name)
-              setPanelBlocksRef.current(restoredPanelBlocks)
-              setIsSessionReady(true)
-              return
-            }
-          }
-        } catch {
-          await clearSessionProjectHandle()
+      await restoreEditorSession({
+        getSessionProject,
+        getSessionProjectHandle,
+        loadProjectFromFile,
+        clearSessionProjectHandle,
+        applyProject: (project, restoreOptions) => {
+          if (cancelled) return
+          applyProjectRef.current(project, restoreOptions)
+        },
+        setCurrentProjectHandle: (handle) => {
+          if (cancelled) return
+          setCurrentProjectHandleRef.current(handle)
+        },
+        setCurrentProjectName: (name) => {
+          if (cancelled) return
+          setCurrentProjectNameRef.current(name)
+        },
+        setPanelBlocks: (panelBlocks) => {
+          if (cancelled) return
+          setPanelBlocksRef.current(panelBlocks)
         }
-      }
-
-      if (sessionProject.draftProject && !cancelled) {
-        applyProjectRef.current(sessionProject.draftProject, {
-          projectHandle: null,
-          projectName: sessionProject.projectName,
-          panelBlocks: restoredPanelBlocks,
-          saveToRecent: false
-        })
-        setCurrentProjectHandleRef.current(null)
-        setCurrentProjectNameRef.current(sessionProject.projectName)
-        setPanelBlocksRef.current(restoredPanelBlocks)
-      }
-
+      })
       setIsSessionReady(true)
     }
 
@@ -114,20 +93,15 @@ export function useAppSessionPersistence(options: UseAppSessionPersistenceOption
 
     const timeoutId = window.setTimeout(() => {
       void (async () => {
-        const sessionPayload = buildSessionPayload({
+        await persistEditorSession({
           currentProjectName: options.currentProjectName,
           currentProjectHandle: options.currentProjectHandle,
-          draftProject: await options.buildCurrentProject(),
-          panelBlocks: options.panelBlocks
+          panelBlocks: options.panelBlocks,
+          buildCurrentProject: options.buildCurrentProject,
+          saveSessionProject,
+          saveSessionProjectHandle,
+          clearSessionProjectHandle
         })
-
-        await saveSessionProject(sessionPayload)
-
-        if (options.currentProjectHandle) {
-          await saveSessionProjectHandle(options.currentProjectHandle)
-        } else {
-          await clearSessionProjectHandle()
-        }
       })()
     }, 700)
 

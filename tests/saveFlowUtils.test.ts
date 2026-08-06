@@ -123,3 +123,90 @@ test('shouldPersistAutosave filters unchanged or stale runs', () => {
     true
   )
 })
+
+test('autosave gating flow skips first run, persists only fresh changed output and ignores stale reruns', () => {
+  const projectHandle = {} as FileSystemFileHandle
+
+  assert.equal(
+    shouldSkipAutosave({
+      currentProjectHandle: projectHandle,
+      skipNextAutosave: true
+    }),
+    'skip-once'
+  )
+
+  assert.equal(
+    shouldSkipAutosave({
+      currentProjectHandle: projectHandle,
+      skipNextAutosave: false
+    }),
+    'run'
+  )
+
+  assert.equal(
+    shouldPersistAutosave({
+      builtProjectText: '{"version":1,"name":"v2"}',
+      lastSavedProjectText: '{"version":1,"name":"v1"}',
+      runId: 4,
+      activeRunId: 4
+    }),
+    true
+  )
+
+  assert.equal(
+    shouldPersistAutosave({
+      builtProjectText: '{"version":1,"name":"v2"}',
+      lastSavedProjectText: '{"version":1,"name":"v2"}',
+      runId: 5,
+      activeRunId: 5
+    }),
+    false
+  )
+
+  assert.equal(
+    shouldPersistAutosave({
+      builtProjectText: '{"version":1,"name":"v3"}',
+      lastSavedProjectText: '{"version":1,"name":"v2"}',
+      runId: 5,
+      activeRunId: 6
+    }),
+    false
+  )
+})
+
+test('snackbar flow keeps saved toast during idle and overrides it for saving or error states', () => {
+  const savedSnackbar = {
+    message: 'Saved',
+    status: 'saved'
+  } as const
+
+  const idleState = getSnackbarStateFromSaveStatus({
+    saveStatus: 'idle',
+    savingMessage: 'Saving...',
+    saveErrorMessage: 'Save failed',
+    currentSnackbar: savedSnackbar
+  })
+  assert.deepEqual(idleState, savedSnackbar)
+
+  const savingState = getSnackbarStateFromSaveStatus({
+    saveStatus: 'saving',
+    savingMessage: 'Saving...',
+    saveErrorMessage: 'Save failed',
+    currentSnackbar: savedSnackbar
+  })
+  assert.deepEqual(savingState, {
+    message: 'Saving...',
+    status: 'saving'
+  })
+
+  const errorState = getSnackbarStateFromSaveStatus({
+    saveStatus: 'error',
+    savingMessage: 'Saving...',
+    saveErrorMessage: 'Save failed',
+    currentSnackbar: savedSnackbar
+  })
+  assert.deepEqual(errorState, {
+    message: 'Save failed',
+    status: 'error'
+  })
+})

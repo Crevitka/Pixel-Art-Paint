@@ -9,7 +9,6 @@ import { useI18nContext } from '@/features/i18n'
 import { useToolContext } from '@/features/tools'
 import type { CanvasSize, Layer, Tool } from '@/shared/types'
 import {
-  clampBoundsToCanvas,
   copyPixelsInBounds,
   copyPixelsInSelectionKeys,
   createBoundsFromPoints,
@@ -17,6 +16,7 @@ import {
   getBoundsCenter,
   getConnectedSelectionKeys,
   getLayerBounds,
+  getPastedClipboardState,
   getSelectionBoundsFromKeys,
   removePixelsInBounds,
   removePixelsInSelectionKeys,
@@ -752,27 +752,6 @@ function drawEyedropperOutline(
   ctx.restore()
 }
 
-function pasteClipboardPixels(
-  targetPixels: Map<string, string>,
-  clipboard: ClipboardSelection,
-  offsetX: number,
-  offsetY: number,
-  canvasSize: CanvasSize
-) {
-  const nextPixels = new Map(targetPixels)
-
-  clipboard.pixels.forEach((color, key) => {
-    const [relativeX, relativeY] = key.split(',').map(Number)
-    const x = offsetX + relativeX
-    const y = offsetY + relativeY
-
-    if (x < 0 || y < 0 || x >= canvasSize.width || y >= canvasSize.height) return
-    nextPixels.set(`${x},${y}`, color)
-  })
-
-  return nextPixels
-}
-
 function loadImageFromBlob(blob: Blob) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const objectUrl = URL.createObjectURL(blob)
@@ -1084,32 +1063,21 @@ export function CanvasWidget() {
     const clipboard = clipboardRef.current
     if (!clipboard) return
 
-    const pasteX = Math.max(0, Math.min(canvasSize.width - 1, clipboard.sourceBounds.minX))
-    const pasteY = Math.max(0, Math.min(canvasSize.height - 1, clipboard.sourceBounds.minY))
-    const nextPixels = pasteClipboardPixels(pixels, clipboard, pasteX, pasteY, canvasSize)
+    const {
+      nextPixels,
+      nextSelectionBounds,
+      nextClipboard
+    } = getPastedClipboardState(pixels, clipboard, canvasSize)
 
     pushHistory()
     setPixels(nextPixels)
-
-    const nextSelectionBounds = clampBoundsToCanvas(
-      {
-        minX: pasteX,
-        minY: pasteY,
-        maxX: pasteX + clipboard.width - 1,
-        maxY: pasteY + clipboard.height - 1
-      },
-      canvasSize
-    )
 
     setSelectionBounds(nextSelectionBounds)
     setSelectionPixelKeys(createSelectionKeysFromBounds(nextSelectionBounds))
     setSelectionPreviewBounds(null)
     selectionStartRef.current = null
     setIsSelecting(false)
-    clipboardRef.current = {
-      ...clipboard,
-      sourceBounds: nextSelectionBounds
-    }
+    clipboardRef.current = nextClipboard
   }
 
   const clearPendingPastedImage = () => {

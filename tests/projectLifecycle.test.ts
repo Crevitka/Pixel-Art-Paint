@@ -234,3 +234,74 @@ test('applyProjectToEditor skips recent save when requested', async () => {
   assert.equal(calls.navigateCount, 1)
   assert.deepEqual(calls.recentSaves, [])
 })
+
+test('applyProjectToEditor opens recent project without file handle and still persists recent metadata', async () => {
+  const project = createProject('Recent Project', 48, 32)
+  const { callbacks, calls } = createCallbacks()
+
+  applyProjectToEditor(project, callbacks, {
+    recentName: 'recent-project.pap.json',
+    projectName: 'Recent Project',
+    projectHandle: null
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(calls.handle, null)
+  assert.equal(calls.projectName, 'Recent Project')
+  assert.equal(calls.navigateCount, 1)
+  assert.deepEqual(calls.recentSaves, [{
+    name: 'recent-project.pap.json',
+    project
+  }])
+})
+
+test('applyProjectToEditor resets previous file handle state when opening a draft-style project', async () => {
+  const project = createProject('Draft Mode Project')
+  const { callbacks, calls } = createCallbacks()
+
+  calls.handle = {} as FileSystemFileHandle
+  calls.projectName = 'Old file-backed project'
+  calls.panelBlocks = {
+    left: ['layers'],
+    center: ['tools'],
+    right: ['palette']
+  }
+
+  applyProjectToEditor(project, callbacks, {
+    projectHandle: null,
+    projectName: null,
+    panelBlocks: {
+      left: ['tools', 'palette'],
+      center: [],
+      right: ['layers']
+    },
+    saveToRecent: false
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(calls.handle, null)
+  assert.equal(calls.projectName, null)
+  assert.deepEqual(calls.panelBlocks, {
+    left: ['tools', 'palette'],
+    center: [],
+    right: ['layers']
+  })
+  assert.equal(calls.navigateCount, 1)
+})
+
+test('applyProjectToEditor does not save recent metadata when recentName is omitted', async () => {
+  const project = createProject('Unsaved Draft')
+  const { callbacks, calls } = createCallbacks()
+
+  applyProjectToEditor(project, callbacks, {
+    projectHandle: null,
+    projectName: null
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(calls.navigateCount, 1)
+  assert.deepEqual(calls.recentSaves, [])
+})

@@ -9,7 +9,9 @@ import {
   getBoundsCenter,
   getConnectedSelectionKeys,
   getLayerBounds,
+  getPastedClipboardState,
   getSelectionBoundsFromKeys,
+  pasteClipboardPixels,
   removePixelsInBounds,
   removePixelsInSelectionKeys,
   translateBounds
@@ -170,4 +172,151 @@ test('copy pixel helpers keep relative coordinates and selection bounds', () => 
     ['0,1', '#cccccc'],
     ['3,4', '#dddddd']
   ])
+})
+
+test('pasteClipboardPixels pastes relative clipboard pixels at the requested offset', () => {
+  const targetPixels = new Map<string, string>([['0,0', '#000000']])
+  const clipboard = {
+    width: 2,
+    height: 2,
+    pixels: new Map<string, string>([
+      ['0,0', '#111111'],
+      ['1,0', '#222222'],
+      ['0,1', '#333333']
+    ]),
+    sourceBounds: {
+      minX: 4,
+      minY: 5,
+      maxX: 5,
+      maxY: 6
+    }
+  }
+
+  const nextPixels = pasteClipboardPixels(targetPixels, clipboard, 3, 4, { width: 8, height: 8 })
+
+  assert.deepEqual([...nextPixels.entries()].sort(), [
+    ['0,0', '#000000'],
+    ['3,4', '#111111'],
+    ['3,5', '#333333'],
+    ['4,4', '#222222']
+  ])
+})
+
+test('getPastedClipboardState clamps pasted selection to the canvas and updates clipboard source bounds', () => {
+  const clipboard = {
+    width: 3,
+    height: 2,
+    pixels: new Map<string, string>([
+      ['0,0', '#111111'],
+      ['1,0', '#222222'],
+      ['2,0', '#333333'],
+      ['0,1', '#444444']
+    ]),
+    sourceBounds: {
+      minX: 5,
+      minY: 4,
+      maxX: 7,
+      maxY: 5
+    }
+  }
+
+  const nextState = getPastedClipboardState(new Map(), clipboard, { width: 6, height: 5 })
+
+  assert.deepEqual(nextState.nextSelectionBounds, {
+    minX: 5,
+    minY: 4,
+    maxX: 5,
+    maxY: 4
+  })
+  assert.deepEqual(nextState.nextClipboard.sourceBounds, nextState.nextSelectionBounds)
+  assert.deepEqual([...nextState.nextPixels.entries()].sort(), [
+    ['5,4', '#111111']
+  ])
+})
+
+test('clipboard flow cuts a sparse selection and pastes it back with preserved relative offsets', () => {
+  const originalPixels = new Map<string, string>([
+    ['2,1', '#aaaaaa'],
+    ['4,2', '#bbbbbb'],
+    ['6,4', '#cccccc'],
+    ['8,8', '#dddddd']
+  ])
+  const selectionKeys = new Set(['2,1', '4,2', '6,4'])
+
+  const clipboard = copyPixelsInSelectionKeys(originalPixels, selectionKeys)
+  assert.ok(clipboard)
+  assert.deepEqual(clipboard.sourceBounds, {
+    minX: 2,
+    minY: 1,
+    maxX: 6,
+    maxY: 4
+  })
+
+  const cutPixels = removePixelsInSelectionKeys(originalPixels, selectionKeys)
+  assert.deepEqual([...cutPixels.entries()].sort(), [
+    ['8,8', '#dddddd']
+  ])
+
+  const pastedState = getPastedClipboardState(cutPixels, clipboard, { width: 12, height: 12 })
+  assert.deepEqual([...pastedState.nextPixels.entries()].sort(), [
+    ['2,1', '#aaaaaa'],
+    ['4,2', '#bbbbbb'],
+    ['6,4', '#cccccc'],
+    ['8,8', '#dddddd']
+  ])
+  assert.deepEqual(pastedState.nextSelectionBounds, {
+    minX: 2,
+    minY: 1,
+    maxX: 6,
+    maxY: 4
+  })
+})
+
+test('clipboard flow pastes a sparse selection at a new offset without collapsing the shape', () => {
+  const sourcePixels = new Map<string, string>([
+    ['5,5', '#111111'],
+    ['7,6', '#222222'],
+    ['6,8', '#333333']
+  ])
+  const selectionKeys = new Set(['5,5', '7,6', '6,8'])
+
+  const clipboard = copyPixelsInSelectionKeys(sourcePixels, selectionKeys)
+  assert.ok(clipboard)
+
+  const pastedPixels = pasteClipboardPixels(new Map(), clipboard, 1, 2, { width: 12, height: 12 })
+  assert.deepEqual([...pastedPixels.entries()].sort(), [
+    ['1,2', '#111111'],
+    ['2,5', '#333333'],
+    ['3,3', '#222222']
+  ])
+})
+
+test('clipboard flow keeps clamped paste bounds stable across repeated edge pastes', () => {
+  const clipboard = {
+    width: 3,
+    height: 3,
+    pixels: new Map<string, string>([
+      ['0,0', '#111111'],
+      ['2,2', '#222222']
+    ]),
+    sourceBounds: {
+      minX: 10,
+      minY: 10,
+      maxX: 12,
+      maxY: 12
+    }
+  }
+
+  const firstPaste = getPastedClipboardState(new Map(), clipboard, { width: 2, height: 2 })
+  assert.deepEqual(firstPaste.nextSelectionBounds, {
+    minX: 1,
+    minY: 1,
+    maxX: 1,
+    maxY: 1
+  })
+  assert.deepEqual([...firstPaste.nextPixels.entries()], [['1,1', '#111111']])
+
+  const secondPaste = getPastedClipboardState(new Map(), firstPaste.nextClipboard, { width: 2, height: 2 })
+  assert.deepEqual(secondPaste.nextSelectionBounds, firstPaste.nextSelectionBounds)
+  assert.deepEqual([...secondPaste.nextPixels.entries()], [['1,1', '#111111']])
 })
